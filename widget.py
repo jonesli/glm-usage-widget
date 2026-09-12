@@ -90,7 +90,10 @@ def load_config(path=CONFIG_PATH):
                             for v in val)):
                 cfg[key] = [int(val[0]), int(val[1])]
         elif isinstance(val, (int, float)) and not isinstance(val, bool) and val > 0:
-            cfg[key] = int(val) if key == "refresh_interval_sec" else val
+            if key != "refresh_interval_sec":
+                cfg[key] = val
+            elif int(val) > 0:
+                cfg[key] = int(val)
     # 阈值倒置视为配置错误，两者整体回退默认
     if cfg["alert_threshold"] <= cfg["warn_threshold"]:
         cfg["alert_threshold"] = DEFAULTS["alert_threshold"]

@@ -112,6 +112,14 @@ class TestConfig(unittest.TestCase):
             self.assertEqual(cfg["warn_threshold"], DEFAULTS["warn_threshold"])
             self.assertEqual(cfg["alert_threshold"], DEFAULTS["alert_threshold"])
 
+    def test_fractional_interval_falls_back(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "config.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"refresh_interval_sec": 0.5}, f)
+            cfg = load_config(path)
+            self.assertEqual(cfg["refresh_interval_sec"], DEFAULTS["refresh_interval_sec"])
+
 
 if __name__ == "__main__":
     unittest.main()
