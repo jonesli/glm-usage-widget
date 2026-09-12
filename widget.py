@@ -119,7 +119,10 @@ class UsageApp:
         self.failures = 0
         self.last_ok = "--:--"
         self.hide_job = None
+        self._dragging = False
+        self._drag_dx = self._drag_dy = 0
         self._build_badge()
+        self._build_panel()
         self._apply_position()
         self.root.after(200, self.refresh)
 
@@ -150,48 +153,179 @@ class UsageApp:
 
     def _apply_position(self):
         x, y = self.cfg["badge_position"]
+        # 钳制到主屏范围内：换显示器/改分辨率后徽章不至于消失在屏幕外
+        sw = self.root.winfo_screenwidth()
+        sh = self.root.winfo_screenheight()
+        x = min(max(x, 8), sw - 91)
+        y = min(max(y, 8), sh - 31)
         self.badge.geometry(f"+{x}+{y}")
 
     def _drag_start(self, e):
         self._drag_dx, self._drag_dy = e.x, e.y
+        self._dragging = True
+        if self.hide_job:
+            self.root.after_cancel(self.hide_job)
+            self.hide_job = None
         self.hide_panel()
+
+    def _drag_end(self, e):
+        self._dragging = False
+        self.cfg["badge_position"] = [self.badge.winfo_x(), self.badge.winfo_y()]
+        save_config(self.cfg)
 
     def _drag_move(self, e):
         x = self.badge.winfo_x() - self._drag_dx + e.x
         y = self.badge.winfo_y() - self._drag_dy + e.y
         self.badge.geometry(f"+{x}+{y}")
 
-    def _drag_end(self, e):
-        self.cfg["badge_position"] = [self.badge.winfo_x(), self.badge.winfo_y()]
-        save_config(self.cfg)
-
     def _render_badge(self):
         parts = badge_parts(self.data, self.last_ok,
                             self.cfg["warn_threshold"], self.cfg["alert_threshold"])
-        # parts 长度 1 = 异常态：占满 5h 位，MCP 位清空
-        if len(parts) == 1:
+        if len(parts) == 1:      # 异常态：错误文案自带图形符号，隐藏 ⚡ 图标
+            self.lb_icon.configure(text="")
             self.lb_5h.configure(text=parts[0][0], fg=parts[0][1])
             self.lb_mcp.configure(text="")
         else:
+            self.lb_icon.configure(text="⚡")
             self.lb_5h.configure(text=parts[0][0], fg=parts[0][1])
             self.lb_mcp.configure(text=parts[1][0], fg=parts[1][1])
 
-    # ---------- 悬停展开/收回（Task 8 填充面板内容，本任务先做空实现）----------
+    # ---------- 展开面板 ----------
+    def _make_bar(self, parent):
+        """200x8 进度条，返回 (canvas, 填充rect)。"""
+        c = tk.Canvas(parent, width=200, height=8, bg=BG, highlightthickness=0)
+        c.create_rectangle(0, 0, 199, 7, outline=COL_DIM)
+        rect = c.create_rectangle(1, 1, 1, 7, fill=COL_OK, width=0)
+        return c, rect
+
+    @staticmethod
+    def _update_bar(canvas, rect, pct, color):
+        w = max(1, int(198 * min(pct, 100) / 100))
+        canvas.coords(rect, 1, 1, w, 7)
+        canvas.itemconfigure(rect, fill=color)
+
+    def _build_panel(self):
+        self.panel = tk.Toplevel(self.root)
+        self.panel.overrideredirect(True)
+        self.panel.attributes("-topmost", True)
+        self.panel.attributes("-alpha", 0.95)
+        self.panel.configure(bg=BG)
+        self.panel.withdraw()
+        self.panel.bind("<Enter>", lambda e: None)  # 悬停面板时不收回
+        self.panel.bind("<Leave>", self.schedule_hide)
+        self.panel.bind("<Button-3>", lambda e: self.root.destroy())
+
+        g = tk.Frame(self.panel, bg=BG)
+        g.pack(fill="both", expand=True, padx=10, pady=8)
+
+        self.p_title = tk.Label(g, text="GLM Coding Plan", font=FONT, bg=BG, fg=FG)
+        self.p_title.grid(row=0, column=0, columnspan=3, sticky="w")
+
+        self.p_bars = []          # [(canvas, rect, pct_label), ...] 窗口A/B
+        for i, name in enumerate(("窗口A", "窗口B")):
+            tk.Label(g, text=name, font=FONT, bg=BG, fg=COL_DIM)\
+                .grid(row=1 + i, column=0, sticky="w")
+            c, rect = self._make_bar(g)
+            c.grid(row=1 + i, column=1, pady=2)
+            lab = tk.Label(g, text="0%", font=FONT, bg=BG, fg=FG, width=5)
+            lab.grid(row=1 + i, column=2, sticky="w")
+            self.p_bars.append((c, rect, lab))
+
+        self.p_today = tk.Label(g, text="今日 Token  0", font=FONT, bg=BG, fg=FG,
+                                justify="left", anchor="w")
+        self.p_today.grid(row=3, column=0, columnspan=3, sticky="we", pady=(6, 0))
+        self.p_models = [
+            tk.Label(g, text="", font=FONT, bg=BG, fg=COL_DIM, anchor="w")
+            for _ in range(4)
+        ]
+        for i, lab in enumerate(self.p_models):
+            lab.grid(row=4 + i, column=0, columnspan=3, sticky="we")
+
+        self.p_mcp_txt = tk.Label(g, text="MCP(月)  0/0  0%", font=FONT, bg=BG, fg=FG,
+                                  anchor="w")
+        self.p_mcp_txt.grid(row=7, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        c, rect = self._make_bar(g)
+        c.grid(row=8, column=0, columnspan=2, sticky="w", pady=2)
+        self.p_mcp_bar = (c, rect)
+
+        self.spark = tk.Canvas(g, width=228, height=40, bg=BG, highlightthickness=0)
+        self.spark.grid(row=9, column=0, columnspan=3, pady=(6, 0))
+
+    def _draw_spark(self):
+        c = self.spark
+        c.delete("all")
+        c.create_rectangle(0, 0, 227, 39, outline=COL_DIM)
+        hourly = (self.data or {}).get("hourly") or []
+        if not hourly:
+            return
+        peak = max(v for _, v in hourly) or 1.0
+        n = len(hourly)
+        bw = max(2, 224 // n - 1)
+        for i, (_, v) in enumerate(hourly):
+            if v <= 0:
+                continue
+            h = int(v / peak * 34)
+            x = 2 + i * (bw + 1)
+            c.create_rectangle(x, 37 - h, x + bw, 37, fill=COL_OK, width=0)
+
+    def _render_panel(self):
+        d = self.data or {}
+        warn, alert = self.cfg["warn_threshold"], self.cfg["alert_threshold"]
+        if d.get("error") in ("NO_TOKEN", "NO_BASE_URL"):
+            self.p_title.configure(text="未配置 Token")
+            self.p_today.configure(text="请设置环境变量 ANTHROPIC_AUTH_TOKEN 与\n"
+                                        "ANTHROPIC_BASE_URL 后重新启动本程序")
+            return
+        self.p_title.configure(text=f"GLM Coding Plan   更新 {self.last_ok}")
+        wins = d.get("token_windows") or []
+        for i, (canvas, rect, lab) in enumerate(self.p_bars):
+            pct = wins[i].get("percentage", 0.0) if i < len(wins) else 0.0
+            self._update_bar(canvas, rect, pct, color_for(pct, warn, alert))
+            lab.configure(text=f"{pct:.0f}%")
+        today = d.get("today") or {}
+        self.p_today.configure(
+            text=f"今日 Token  {format_tokens(today.get('total_tokens', 0))}")
+        models = today.get("models") or []
+        rows = [f"  {m['name']}  {format_tokens(m['tokens'])}" for m in models[:3]]
+        if len(models) > 3:
+            extra = sum(m["tokens"] for m in models[3:])
+            rows.append(f"  其他({len(models) - 3})  {format_tokens(extra)}")
+        for i, lab in enumerate(self.p_models):
+            lab.configure(text=rows[i] if i < len(rows) else "")
+        mcp = d.get("mcp") or {"used": 0, "total": 0, "percentage": 0.0}
+        self._update_bar(self.p_mcp_bar[0], self.p_mcp_bar[1],
+                         mcp["percentage"], color_for(mcp["percentage"], warn, alert))
+        self.p_mcp_txt.configure(
+            text=f"MCP(月)  {mcp['used']}/{mcp['total']}  {mcp['percentage']:.0f}%")
+        self._draw_spark()
+
+    # ---------- 悬停展开/收回 ----------
     def show_panel(self):
+        if self._dragging:
+            return
         if self.hide_job:
             self.root.after_cancel(self.hide_job)
             self.hide_job = None
+        self._render_panel()
+        bx, by = self.badge.winfo_x(), self.badge.winfo_y()
+        screen_w = self.root.winfo_screenwidth()
+        px = min(max(10, bx), screen_w - 280)
+        py = by - 230
+        if py < 10:                       # 徽章太靠上则翻转到下方
+            py = by + 40
+        self.panel.geometry(f"+{px}+{py}")
+        self.panel.deiconify()
 
     def schedule_hide(self, e=None):
         px, py = self.root.winfo_pointerxy()
-        if self._inside(self.badge, px, py):
+        if self._inside(self.badge, px, py) or self._inside(self.panel, px, py):
             return  # 跨子控件触发的假 Leave
         if self.hide_job:
             self.root.after_cancel(self.hide_job)
         self.hide_job = self.root.after(500, self.hide_panel)
 
     def hide_panel(self):
-        pass
+        self.panel.withdraw()
 
     @staticmethod
     def _inside(win, px, py):
@@ -205,7 +339,8 @@ class UsageApp:
         self._apply_data({"token_windows": [{"percentage": 5.0}, {"percentage": 8.0}],
                           "mcp": {"used": 38, "total": 4000, "percentage": 0.95},
                           "today": {"total_tokens": 5517208, "models": []},
-                          "hourly": [], "fetched_at": ""})
+                          "hourly": [(f"2026-09-12 {h:02d}:00", (h * 37 % 100) * 100_000) for h in range(24)],
+                          "fetched_at": ""})
 
     def _apply_data(self, data):
         try:

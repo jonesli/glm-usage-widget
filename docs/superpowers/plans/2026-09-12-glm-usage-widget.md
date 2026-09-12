@@ -990,6 +990,8 @@ git commit -m "feat: 置顶徽章窗口（拖动/位置记忆/右键退出）"
 
 ---
 
+> **审查后加固（Task 7 质量审查已实施，随 Task 8 落地）：** ① `_apply_position` 钳制坐标到主屏范围（换显示器/改分辨率后徽章不能消失在屏幕外无法找回，钳制基准 91×31px）；② 新增 `self._dragging` 标志（`_drag_start` 置 True 并取消 pending hide_job，`_drag_end` 置 False），`show_panel` 拖动中直接 return——修复拖动中快速进出徽章会触发面板弹出的问题；③ `_render_badge` 错误态隐藏 ⚡ 图标（badge_parts 错误文案自带 ⚠/未配置 符号，否则显示 "⚡ ⚠" 双图标）；④ `_drag_dx/_dy` 在 `__init__` 初始化为 0。
+
 ### Task 8: 展开面板（进度条、今日 Token、MCP、24h 迷你柱状图、悬停逻辑）
 
 **Files:**
