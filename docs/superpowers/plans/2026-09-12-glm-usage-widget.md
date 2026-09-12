@@ -839,6 +839,8 @@ git commit -m "feat: widget 纯函数（着色/退避/徽章文案/配置读写�
 
 ---
 
+> **审查后加固（Task 6 质量审查已实施）：** ① load_config 接受浮点数值（refresh_interval_sec 取整，阈值保留浮点，bool 仍排除）；② 阈值倒置（alert <= warn）视为配置错误、两者整体回退默认；③ 新增 `BACKOFF_SEC = 300` 常量，退避取 `max(base, BACKOFF_SEC)`（不低于用户配置的间隔）；④ save_config 改为临时文件 + `os.replace` 原子写，异常面扩为 `(OSError, TypeError, ValueError)`；⑤ 相应新增 3 个测试。
+
 ### Task 7: 徽章窗口（置顶、拖动、位置记忆、右键退出）
 
 **Files:**

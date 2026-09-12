@@ -26,6 +26,9 @@ class TestNextInterval(unittest.TestCase):
         self.assertEqual(next_interval_sec(3, 60), 300)
         self.assertEqual(next_interval_sec(9, 60), 300)
 
+    def test_backoff_never_below_configured(self):
+        self.assertEqual(next_interval_sec(3, 600), 600)
+
 
 class TestBadgeParts(unittest.TestCase):
     def test_no_data(self):
@@ -90,6 +93,24 @@ class TestConfig(unittest.TestCase):
             with open(cfg2_path, "w", encoding="utf-8") as f:
                 json.dump({"warn_threshold": 40}, f)
             self.assertEqual(load_config(cfg2_path)["warn_threshold"], 40)
+
+    def test_float_values_adopted(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "config.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"refresh_interval_sec": 90.0, "alert_threshold": 85.5}, f)
+            cfg = load_config(path)
+            self.assertEqual(cfg["refresh_interval_sec"], 90)
+            self.assertEqual(cfg["alert_threshold"], 85.5)
+
+    def test_inverted_thresholds_fall_back(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "config.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"warn_threshold": 90, "alert_threshold": 50}, f)
+            cfg = load_config(path)
+            self.assertEqual(cfg["warn_threshold"], DEFAULTS["warn_threshold"])
+            self.assertEqual(cfg["alert_threshold"], DEFAULTS["alert_threshold"])
 
 
 if __name__ == "__main__":

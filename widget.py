@@ -18,6 +18,8 @@ DEFAULTS = {
     "badge_position": [80, 80],
 }
 
+BACKOFF_SEC = 300
+
 BG = "#1e1e2e"        # 深色底
 FG = "#cdd6f4"        # 主文字
 COL_DIM = "#9399b2"   # 次要文字
@@ -48,8 +50,8 @@ def color_for(pct, warn, alert):
 
 
 def next_interval_sec(failures, base):
-    """连续失败 >=3 次把间隔放宽到 300s。"""
-    return 300 if failures >= 3 else base
+    """连续失败 >=3 次把间隔放宽到 BACKOFF_SEC（不低于用户配置值）。"""
+    return max(base, BACKOFF_SEC) if failures >= 3 else base
 
 
 def badge_parts(data, last_ok, warn=50, alert=80):
@@ -87,14 +89,20 @@ def load_config(path=CONFIG_PATH):
                     and all(isinstance(v, (int, float)) and not isinstance(v, bool)
                             for v in val)):
                 cfg[key] = [int(val[0]), int(val[1])]
-        elif isinstance(val, int) and not isinstance(val, bool) and val > 0:
-            cfg[key] = val
+        elif isinstance(val, (int, float)) and not isinstance(val, bool) and val > 0:
+            cfg[key] = int(val) if key == "refresh_interval_sec" else val
+    # 阈值倒置视为配置错误，两者整体回退默认
+    if cfg["alert_threshold"] <= cfg["warn_threshold"]:
+        cfg["alert_threshold"] = DEFAULTS["alert_threshold"]
+        cfg["warn_threshold"] = DEFAULTS["warn_threshold"]
     return cfg
 
 
 def save_config(cfg, path=CONFIG_PATH):
     try:
-        with open(path, "w", encoding="utf-8") as f:
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(cfg, f, ensure_ascii=False, indent=2)
-    except OSError as exc:
+        os.replace(tmp, path)
+    except (OSError, TypeError, ValueError) as exc:
         log(f"写入配置失败: {exc}")
