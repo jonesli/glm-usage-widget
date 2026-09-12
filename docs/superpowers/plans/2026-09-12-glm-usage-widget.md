@@ -463,6 +463,8 @@ git commit -m "feat: parse_model_usage 今日聚合与 24h 趋势"
 
 ---
 
+> **审查后加固（Task 4 质量审查已实施，随 Task 5 提交落地）：** ① `per_model[name]` 改为累加 `per_model.get(name, 0.0) + sum(...)`（同名模型多行时保持"分项和==总数"不变式）；② docstring 补两句：标签假定为零填充 `YYYY-MM-DD HH:00` 本地时区格式；modelDataList 的 tokensUsage 与 x_time 按下标对齐（同起点同粒度）；③ 补测试 `test_now_boundary_includes_current_hour_bucket`（now=09-12 14:00 → 今日 43_238_070，含 14:00 桶）及在 test_today_models_same_source 中加"分项和==总数"断言；④ Task 8 面板模型行改为前 3 名 + "其他"折叠行（Task 8 代码已同步更新）。
+
 ### Task 5: 网络层 fetch_json / fetch_all（可注入 fetcher，容错不抛异常）
 
 **Files:**
@@ -1045,7 +1047,7 @@ git commit -m "feat: 置顶徽章窗口（拖动/位置记忆/右键退出）"
         self.p_today.grid(row=3, column=0, columnspan=3, sticky="we", pady=(6, 0))
         self.p_models = [
             tk.Label(g, text="", font=FONT, bg=BG, fg=COL_DIM, anchor="w")
-            for _ in range(3)
+            for _ in range(4)
         ]
         for i, lab in enumerate(self.p_models):
             lab.grid(row=4 + i, column=0, columnspan=3, sticky="we")
@@ -1095,12 +1097,12 @@ git commit -m "feat: 置顶徽章窗口（拖动/位置记忆/右键退出）"
         self.p_today.configure(
             text=f"今日 Token  {format_tokens(today.get('total_tokens', 0))}")
         models = today.get("models") or []
+        rows = [f"  {m['name']}  {format_tokens(m['tokens'])}" for m in models[:3]]
+        if len(models) > 3:
+            extra = sum(m["tokens"] for m in models[3:])
+            rows.append(f"  其他({len(models) - 3})  {format_tokens(extra)}")
         for i, lab in enumerate(self.p_models):
-            if i < len(models):
-                m = models[i]
-                lab.configure(text=f"  {m['name']}  {format_tokens(m['tokens'])}")
-            else:
-                lab.configure(text="")
+            lab.configure(text=rows[i] if i < len(rows) else "")
         mcp = d.get("mcp") or {"used": 0, "total": 0, "percentage": 0.0}
         self._update_bar(self.p_mcp_bar[0], self.p_mcp_bar[1],
                          mcp["percentage"], color_for(mcp["percentage"], warn, alert))

@@ -97,6 +97,9 @@ def parse_model_usage(data, now=None):
     - today 按 x_time 标签属于今天且 <= now 的桶求和（排除未到达的桶）
     - 按模型分项用 modelDataList（每模型逐小时数组）做同口径今日聚合，
       不用 modelSummaryList（那是整窗口径）
+
+    标签假定为零填充 "YYYY-MM-DD HH:00" 的本地时区格式；
+    modelDataList 的 tokensUsage 与 x_time 按下标对齐（同起点同粒度）。
     """
     if now is None:
         now = datetime.now()
@@ -124,7 +127,7 @@ def parse_model_usage(data, now=None):
             name = str(row.get("modelName", "?"))
             arr = row.get("tokensUsage")
             if isinstance(arr, list):
-                per_model[name] = sum(
+                per_model[name] = per_model.get(name, 0.0) + sum(
                     _to_float(v) for v, flag in zip(arr, today_flags) if flag
                 )
 
@@ -135,3 +138,44 @@ def parse_model_usage(data, now=None):
                    for k, v in sorted(per_model.items(), key=lambda kv: -kv[1])],
     }
     return out
+
+
+def fetch_json(url, token, timeout=TIMEOUT_SEC):
+    """GET 一个接口并返回解析后的 dict；任何失败抛 UsageError。"""
+    req = urllib.request.Request(url, headers={
+        "Authorization": token,
+        "Content-Type": "application/json",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = resp.read().decode("utf-8")
+    except Exception as exc:  # urllib 把 HTTP 非 200 也抛成异常（HTTPError）
+        raise UsageError(f"{url} -> {exc}") from exc
+    try:
+        return json.loads(body)
+    except ValueError as exc:
+        raise UsageError(f"响应不是 JSON: {body[:200]}") from exc
+
+
+def fetch_all(now=None, fetcher=fetch_json, token=None, base_url=None):
+    """拉取并解析全部数据。永不抛异常：
+    成功返回统一结构；失败返回 {"error": "<信息>"}。"""
+    if now is None:
+        now = datetime.now()
+    token = os.environ.get("ANTHROPIC_AUTH_TOKEN", "") if token is None else token
+    base_url = base_url or get_base_url()
+    if not token:
+        return {"error": "NO_TOKEN"}
+    if not base_url:
+        return {"error": "NO_BASE_URL"}
+    start, end = query_window(now)
+    query = urllib.parse.urlencode({"startTime": start, "endTime": end})
+    try:
+        model_data = fetcher(f"{base_url}/api/monitor/usage/model-usage?{query}", token)
+        quota_data = fetcher(f"{base_url}/api/monitor/usage/quota/limit", token)
+    except UsageError as exc:
+        return {"error": str(exc)}
+    result = parse_quota(quota_data)
+    result.update(parse_model_usage(model_data, now))
+    result["fetched_at"] = now.strftime("%Y-%m-%d %H:%M:%S")
+    return result
