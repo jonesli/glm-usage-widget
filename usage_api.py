@@ -157,6 +157,20 @@ def fetch_json(url, token, timeout=TIMEOUT_SEC):
         raise UsageError(f"响应不是 JSON: {body[:200]}") from exc
 
 
+def _unwrap(payload):
+    """剥掉 {"code": 200, "data": {...}} 信封；code 非 200 视为接口错误。
+
+    fixtures/官方脚本消费的是解包后的 data；无信封的 payload 原样透传。
+    """
+    if not isinstance(payload, dict):
+        return payload
+    code = payload.get("code")
+    if code is not None and code != 200:
+        raise UsageError(f"接口返回 code={code}: {str(payload.get('msg', ''))[:100]}")
+    data = payload.get("data")
+    return data if data is not None else payload
+
+
 def fetch_all(now=None, fetcher=fetch_json, token=None, base_url=None):
     """拉取并解析全部数据。永不抛异常：
     成功返回统一结构；失败返回 {"error": "<信息>"}。"""
@@ -171,8 +185,8 @@ def fetch_all(now=None, fetcher=fetch_json, token=None, base_url=None):
     start, end = query_window(now)
     query = urllib.parse.urlencode({"startTime": start, "endTime": end})
     try:
-        model_data = fetcher(f"{base_url}/api/monitor/usage/model-usage?{query}", token)
-        quota_data = fetcher(f"{base_url}/api/monitor/usage/quota/limit", token)
+        model_data = _unwrap(fetcher(f"{base_url}/api/monitor/usage/model-usage?{query}", token))
+        quota_data = _unwrap(fetcher(f"{base_url}/api/monitor/usage/quota/limit", token))
     except UsageError as exc:
         return {"error": str(exc)}
     result = parse_quota(quota_data)

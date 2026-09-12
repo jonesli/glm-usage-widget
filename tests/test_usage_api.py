@@ -195,6 +195,30 @@ class TestFetchAll(unittest.TestCase):
             with self.assertRaises(UsageError):
                 fetch_json("https://x.example/api", "tok")
 
+    def test_enveloped_responses_unwrapped(self):
+        def fake_fetcher(url, token):
+            if "model-usage" in url:
+                return {"code": 200, "msg": "ok",
+                        "data": json.loads(load_fixture("model_usage.json"))}
+            return {"code": 200, "msg": "ok",
+                    "data": json.loads(load_fixture("quota_limit.json"))}
+
+        out = fetch_all(now=datetime(2026, 9, 12, 19, 0, 0), fetcher=fake_fetcher,
+                        token="tok", base_url="https://x.example")
+        self.assertNotIn("error", out)
+        self.assertEqual(out["token_windows"], [{"percentage": 5.0}, {"percentage": 8.0}])
+        self.assertEqual(out["mcp"]["used"], 38)
+        self.assertEqual(out["today"]["total_tokens"], 55_172_080)
+
+    def test_error_code_envelope_returns_error(self):
+        def fake_fetcher(url, token):
+            return {"code": 401, "msg": "token expired"}
+
+        out = fetch_all(now=datetime(2026, 9, 12), fetcher=fake_fetcher,
+                        token="tok", base_url="https://x.example")
+        self.assertIn("error", out)
+        self.assertIn("401", out["error"])
+
 
 if __name__ == "__main__":
     unittest.main()

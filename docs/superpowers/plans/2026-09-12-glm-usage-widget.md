@@ -600,6 +600,8 @@ git commit -m "feat: fetch_json/fetch_all 网络层与容错聚合"
 
 ---
 
+> **审查修正（Task 5 冒烟发现，原计划遗漏）：** 真实接口返回 `{"code": 200, "msg": ..., "data": {...}}` 信封（fixtures 取自官方脚本已解包的输出，故无信封层；官方脚本用 `json.data || json` 解包）。fetch_all 在解析前用模块级 `_unwrap(payload)` 剥信封：`code` 存在且非 200 → 抛 UsageError（让过期 token 走 ⚠ 错误路径，而不是静默显示 0）；无信封的 payload 原样透传（既有测试不受影响）。
+
 ### Task 6: widget 纯函数（color_for / next_interval_sec / badge_parts / 配置读写）
 
 **Files:**
