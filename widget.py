@@ -2,10 +2,11 @@
 
 import json
 import os
+import threading
 from datetime import datetime
 import tkinter as tk
 
-from usage_api import format_tokens
+from usage_api import fetch_all, format_tokens
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(APP_DIR, "config.json")
@@ -153,12 +154,21 @@ class UsageApp:
 
     def _apply_position(self):
         x, y = self.cfg["badge_position"]
-        # 钳制到主屏范围内：换显示器/改分辨率后徽章不至于消失在屏幕外
+        self.badge.geometry(f"+{x}+{y}")
+        self._clamp_badge_position()
+
+    def _clamp_badge_position(self):
+        # 钳制到主屏范围内：换显示器/改分辨率后徽章不至于消失在屏幕外。
+        # 徽章首渲染后约 161px 宽，必须用实时尺寸而非硬编码。
+        self.badge.update_idletasks()
+        bw = max(self.badge.winfo_width(), self.badge.winfo_reqwidth(), 1)
+        bh = max(self.badge.winfo_height(), self.badge.winfo_reqheight(), 1)
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
-        x = min(max(x, 8), sw - 91)
-        y = min(max(y, 8), sh - 31)
-        self.badge.geometry(f"+{x}+{y}")
+        x = min(max(self.badge.winfo_x(), 8), sw - bw - 8)
+        y = min(max(self.badge.winfo_y(), 8), sh - bh - 8)
+        if (x, y) != (self.badge.winfo_x(), self.badge.winfo_y()):
+            self.badge.geometry(f"+{x}+{y}")
 
     def _drag_start(self, e):
         self._drag_dx, self._drag_dy = e.x, e.y
@@ -168,6 +178,7 @@ class UsageApp:
 
     def _drag_end(self, e):
         self._dragging = False
+        self._clamp_badge_position()
         self.cfg["badge_position"] = [self.badge.winfo_x(), self.badge.winfo_y()]
         save_config(self.cfg)
 
@@ -241,13 +252,13 @@ class UsageApp:
 
         self.p_mcp_txt = tk.Label(g, text="MCP(月)  0/0  0%", font=FONT, bg=BG, fg=FG,
                                   anchor="w")
-        self.p_mcp_txt.grid(row=7, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        self.p_mcp_txt.grid(row=8, column=0, columnspan=2, sticky="w", pady=(6, 0))
         c, rect = self._make_bar(g)
-        c.grid(row=8, column=0, columnspan=2, sticky="w", pady=2)
+        c.grid(row=9, column=0, columnspan=2, sticky="w", pady=2)
         self.p_mcp_bar = (c, rect)
 
         self.spark = tk.Canvas(g, width=228, height=40, bg=BG, highlightthickness=0)
-        self.spark.grid(row=9, column=0, columnspan=3, pady=(6, 0))
+        self.spark.grid(row=10, column=0, columnspan=3, pady=(6, 0))
 
     def _draw_spark(self):
         c = self.spark
@@ -262,7 +273,7 @@ class UsageApp:
         for i, (_, v) in enumerate(hourly):
             if v <= 0:
                 continue
-            h = int(v / peak * 34)
+            h = max(1, int(v / peak * 34))
             x = 2 + i * (bw + 1)
             c.create_rectangle(x, 37 - h, x + bw, 37, fill=COL_OK, width=0)
 
@@ -312,11 +323,18 @@ class UsageApp:
         except Exception as exc:
             log(f"面板渲染异常: {exc!r}")
         bx, by = self.badge.winfo_x(), self.badge.winfo_y()
-        screen_w = self.root.winfo_screenwidth()
-        px = min(max(10, bx), screen_w - 280)
-        py = by - 230
-        if py < 10:                       # 徽章太靠上则翻转到下方
-            py = by + 40
+        self.panel.update_idletasks()
+        pw = self.panel.winfo_reqwidth()
+        ph = self.panel.winfo_reqheight()
+        sw = self.root.winfo_screenwidth()
+        sh = self.root.winfo_screenheight()
+        px = min(max(8, bx), sw - pw - 8)
+        # 默认在徽章上方；顶部放不下翻转到下方；下方也放不下则钳到底部
+        py = by - ph - 6
+        if py < 8:
+            py = by + self.badge.winfo_height() + 6
+        if py + ph > sh - 8:
+            py = sh - 8 - ph
         self.panel.geometry(f"+{px}+{py}")
         self.panel.deiconify()
 
@@ -339,20 +357,34 @@ class UsageApp:
         x, y = win.winfo_rootx(), win.winfo_rooty()
         return x <= px <= x + win.winfo_width() and y <= py <= y + win.winfo_height()
 
-    # ---------- 数据刷新（Task 9 接入真实拉取，本任务先用静态演示数据）----------
+    # ---------- 数据刷新 ----------
     def refresh(self):
-        self._apply_data({"token_windows": [{"percentage": 5.0}, {"percentage": 8.0}],
-                          "mcp": {"used": 38, "total": 4000, "percentage": 0.95},
-                          "today": {"total_tokens": 5517208, "models": []},
-                          "hourly": [(f"2026-09-12 {h:02d}:00", (h * 37 % 100) * 100_000) for h in range(24)],
-                          "fetched_at": ""})
+        threading.Thread(target=self._fetch_worker, daemon=True).start()
+
+    def _fetch_worker(self):
+        data = fetch_all()          # 永不抛异常
+        self.root.after(0, lambda: self._apply_data(data))
 
     def _apply_data(self, data):
         try:
-            self.data = data
+            if data.get("error") in ("NO_TOKEN", "NO_BASE_URL"):
+                self.failures = 0
+            elif data.get("error"):
+                self.failures += 1
+                log(f"拉取失败: {str(data['error'])[:200]}")
+            else:
+                self.failures = 0
+                self.last_ok = datetime.now().strftime("%H:%M")
+                self.data = data
             self._render_badge()
+            self.root.after_idle(self._clamp_badge_position)
+            if self.panel.winfo_ismapped():
+                self._render_panel()
         except Exception as exc:
             log(f"UI 更新异常: {exc!r}")
+        finally:
+            delay = next_interval_sec(self.failures, self.cfg["refresh_interval_sec"])
+            self.root.after(delay * 1000, self.refresh)
 
 
 def main():

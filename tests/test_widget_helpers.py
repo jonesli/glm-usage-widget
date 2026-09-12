@@ -2,7 +2,9 @@ import json
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
+import widget
 from widget import (
     COL_ALERT, COL_DIM, COL_OK, COL_WARN, DEFAULTS,
     badge_parts, color_for, load_config, next_interval_sec, save_config,
@@ -119,6 +121,32 @@ class TestConfig(unittest.TestCase):
                 json.dump({"refresh_interval_sec": 0.5}, f)
             cfg = load_config(path)
             self.assertEqual(cfg["refresh_interval_sec"], DEFAULTS["refresh_interval_sec"])
+
+
+class TestLog(unittest.TestCase):
+    def test_log_writes_timestamped_line(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "widget.log")
+            with patch.object(widget, "LOG_PATH", path):
+                widget.log("hello")
+            content = open(path, encoding="utf-8").read()
+            self.assertIn("hello", content)
+            self.assertRegex(content, r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} hello\n$")
+
+    def test_log_truncates_over_1mb(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "widget.log")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("x" * 1_100_000)
+            with patch.object(widget, "LOG_PATH", path):
+                widget.log("fresh")
+            self.assertLess(os.path.getsize(path), 10_000)
+            self.assertIn("fresh", open(path, encoding="utf-8").read())
+
+    def test_log_swallows_os_errors(self):
+        with tempfile.TemporaryDirectory() as d:
+            with patch.object(widget, "LOG_PATH", d):   # 目录无法作为文件打开
+                widget.log("no crash")
 
 
 if __name__ == "__main__":
