@@ -601,6 +601,8 @@ git commit -m "feat: fetch_json/fetch_all 网络层与容错聚合"
 ---
 
 > **审查修正（Task 5 冒烟发现，原计划遗漏）：** 真实接口返回 `{"code": 200, "msg": ..., "data": {...}}` 信封（fixtures 取自官方脚本已解包的输出，故无信封层；官方脚本用 `json.data || json` 解包）。fetch_all 在解析前用模块级 `_unwrap(payload)` 剥信封：`code` 存在且非 200 → 抛 UsageError（让过期 token 走 ⚠ 错误路径，而不是静默显示 0）；无信封的 payload 原样透传（既有测试不受影响）。
+>
+> **追加（Task 5 质量审查 fix-first）：** ① fetch_all 增加 `except Exception` 兜底分支，返回 `{"error": "unexpected: ..."}`——Task 9 的轮询线程依赖"永不抛异常"，否则意外异常会永久杀死 pythonw 下的刷新循环；② `_unwrap` 的 code 判断归一化为 `str(code) != "200"`；③ 补两个契约测试：Authorization 头必须携带原值 token（防误改为 Bearer 前缀）、urlopen 抛 HTTPError → UsageError。
 
 ### Task 6: widget 纯函数（color_for / next_interval_sec / badge_parts / 配置读写）
 

@@ -165,7 +165,7 @@ def _unwrap(payload):
     if not isinstance(payload, dict):
         return payload
     code = payload.get("code")
-    if code is not None and code != 200:
+    if code is not None and str(code) != "200":
         raise UsageError(f"接口返回 code={code}: {str(payload.get('msg', ''))[:100]}")
     data = payload.get("data")
     return data if data is not None else payload
@@ -189,6 +189,8 @@ def fetch_all(now=None, fetcher=fetch_json, token=None, base_url=None):
         quota_data = _unwrap(fetcher(f"{base_url}/api/monitor/usage/quota/limit", token))
     except UsageError as exc:
         return {"error": str(exc)}
+    except Exception as exc:  # 兜底：意外异常不能杀死轮询线程
+        return {"error": f"unexpected: {exc!r}"}
     result = parse_quota(quota_data)
     result.update(parse_model_usage(model_data, now))
     result["fetched_at"] = now.strftime("%Y-%m-%d %H:%M:%S")

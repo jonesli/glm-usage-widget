@@ -1,6 +1,8 @@
+import io
 import json
 import os
 import unittest
+import urllib.error
 from datetime import datetime
 from unittest.mock import patch
 
@@ -218,6 +220,46 @@ class TestFetchAll(unittest.TestCase):
                         token="tok", base_url="https://x.example")
         self.assertIn("error", out)
         self.assertIn("401", out["error"])
+
+    def test_authorization_header_is_raw_token(self):
+        captured = {}
+
+        class FakeResp:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def read(self):
+                return b"{}"
+
+        def fake_urlopen(req, timeout=None):
+            captured["headers"] = dict(req.header_items())
+            return FakeResp()
+
+        with patch("usage_api.urllib.request.urlopen", side_effect=fake_urlopen):
+            fetch_json("https://x.example/api", "tok-123")
+        headers = {k.lower(): v for k, v in captured["headers"].items()}
+        self.assertEqual(headers.get("authorization"), "tok-123")
+
+    def test_urlopen_http_error_raises_usage_error(self):
+        def fake_urlopen(req, timeout=None):
+            raise urllib.error.HTTPError(req.full_url, 500, "server boom", {},
+                                         io.BytesIO(b"oops"))
+
+        with patch("usage_api.urllib.request.urlopen", side_effect=fake_urlopen):
+            with self.assertRaises(UsageError):
+                fetch_json("https://x.example/api", "tok")
+
+    def test_fetch_all_never_raises_on_unexpected(self):
+        def bad_fetcher(url, token):
+            raise RuntimeError("surprise")
+
+        out = fetch_all(now=datetime(2026, 9, 12), fetcher=bad_fetcher,
+                        token="tok", base_url="https://x.example")
+        self.assertIn("error", out)
+        self.assertIn("unexpected", out["error"])
 
 
 if __name__ == "__main__":
