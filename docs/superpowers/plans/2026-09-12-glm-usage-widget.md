@@ -1250,6 +1250,12 @@ git commit -m "feat: 后台线程拉取真实数据与失败退避"
 
 ---
 
+> **审查修正（Task 9 质量审查 Critical，计划自身携带的缺陷）：** 原计划中 `_render_badge` 渲染 `self.data`（仅成功时更新），错误态不可达——断网徽章 ⚠ 与"未配置"永远不显示，违反验收标准。修正：新增 `self.latest` 保存最新拉取结果（含错误态），徽章渲染改用 `self.latest`；`_render_panel` 增加通用错误标题"更新失败 HH:MM，重试中"（数字保留最后成功值）；面板定位抽取为 `_position_panel()`，面板展开中收到新数据时原位重渲染并重新定位；`_fetch_worker` 包 try/except + log 兜底；补 2 个应用级错误态测试（真实 Tk 根 + stub fetch_all，防止回归）。
+>
+> **审查修正（Task 9 质量审查 Important，多显示器决策）：** 拖动松手时按主屏尺寸钳制会把副屏上的徽章弹回主屏并持久化错误位置。决策：`_clamp_badge_position` 保留为**仅启动时**的安全网（换显示器/改分辨率后位置失效时钳回主屏），`_drag_end` 与渲染后的 `after_idle` 钳制均移除——拖动是用户自主摆放，不干预；Task 10 README 说明此策略。
+>
+> **顺带（Task 9 质量审查 Minor）：** TestLog 两处 `open()` 改为 with 语句消除 ResourceWarning；断网测试用小 `refresh_interval_sec` 并在 README 说明 3 次失败后退避 300s 的恢复延迟。
+
 ### Task 10: README 与收尾
 
 **Files:**

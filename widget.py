@@ -117,6 +117,7 @@ class UsageApp:
         self.root = root
         self.cfg = load_config()
         self.data = None          # 最近一次成功数据
+        self.latest = None        # 最新一次拉取结果（含错误态），徽章据此渲染 ⚠/未配置
         self.failures = 0
         self.last_ok = "--:--"
         self.hide_job = None
@@ -158,8 +159,7 @@ class UsageApp:
         self._clamp_badge_position()
 
     def _clamp_badge_position(self):
-        # 钳制到主屏范围内：换显示器/改分辨率后徽章不至于消失在屏幕外。
-        # 徽章首渲染后约 161px 宽，必须用实时尺寸而非硬编码。
+        """启动时的安全网：徽章位置完全失效（换显示器/改分辨率）时钳回主屏。"""
         self.badge.update_idletasks()
         bw = max(self.badge.winfo_width(), self.badge.winfo_reqwidth(), 1)
         bh = max(self.badge.winfo_height(), self.badge.winfo_reqheight(), 1)
@@ -178,7 +178,6 @@ class UsageApp:
 
     def _drag_end(self, e):
         self._dragging = False
-        self._clamp_badge_position()
         self.cfg["badge_position"] = [self.badge.winfo_x(), self.badge.winfo_y()]
         save_config(self.cfg)
 
@@ -188,7 +187,7 @@ class UsageApp:
         self.badge.geometry(f"+{x}+{y}")
 
     def _render_badge(self):
-        parts = badge_parts(self.data, self.last_ok,
+        parts = badge_parts(self.latest, self.last_ok,
                             self.cfg["warn_threshold"], self.cfg["alert_threshold"])
         if len(parts) == 1:      # 异常态：错误文案自带图形符号，隐藏 ⚡ 图标
             self.lb_icon.configure(text="")
@@ -278,14 +277,18 @@ class UsageApp:
             c.create_rectangle(x, 37 - h, x + bw, 37, fill=COL_OK, width=0)
 
     def _render_panel(self):
-        d = self.data or {}
+        latest = self.latest or {}
         warn, alert = self.cfg["warn_threshold"], self.cfg["alert_threshold"]
-        if d.get("error") in ("NO_TOKEN", "NO_BASE_URL"):
+        if latest.get("error") in ("NO_TOKEN", "NO_BASE_URL"):
             self.p_title.configure(text="未配置 Token")
             self.p_today.configure(text="请设置环境变量 ANTHROPIC_AUTH_TOKEN 与\n"
                                         "ANTHROPIC_BASE_URL 后重新启动本程序")
             return
-        self.p_title.configure(text=f"GLM Coding Plan   更新 {self.last_ok}")
+        d = self.data or {}
+        if latest.get("error"):
+            self.p_title.configure(text=f"GLM Coding Plan   更新失败 {self.last_ok}，重试中")
+        else:
+            self.p_title.configure(text=f"GLM Coding Plan   更新 {self.last_ok}")
         wins = d.get("token_windows") or []
         for i, (canvas, rect, lab) in enumerate(self.p_bars):
             pct = wins[i].get("percentage", 0.0) if i < len(wins) else 0.0
@@ -314,14 +317,7 @@ class UsageApp:
             self.root.after_cancel(self.hide_job)
             self.hide_job = None
 
-    def show_panel(self):
-        if self._dragging:
-            return
-        self._cancel_hide()
-        try:
-            self._render_panel()
-        except Exception as exc:
-            log(f"面板渲染异常: {exc!r}")
+    def _position_panel(self):
         bx, by = self.badge.winfo_x(), self.badge.winfo_y()
         self.panel.update_idletasks()
         pw = self.panel.winfo_reqwidth()
@@ -336,6 +332,16 @@ class UsageApp:
         if py + ph > sh - 8:
             py = sh - 8 - ph
         self.panel.geometry(f"+{px}+{py}")
+
+    def show_panel(self):
+        if self._dragging:
+            return
+        self._cancel_hide()
+        try:
+            self._render_panel()
+        except Exception as exc:
+            log(f"面板渲染异常: {exc!r}")
+        self._position_panel()
         self.panel.deiconify()
 
     def schedule_hide(self, e=None):
@@ -362,11 +368,15 @@ class UsageApp:
         threading.Thread(target=self._fetch_worker, daemon=True).start()
 
     def _fetch_worker(self):
-        data = fetch_all()          # 永不抛异常
-        self.root.after(0, lambda: self._apply_data(data))
+        try:
+            data = fetch_all()          # 永不抛异常
+            self.root.after(0, lambda: self._apply_data(data))
+        except Exception as exc:
+            log(f"后台线程异常: {exc!r}")
 
     def _apply_data(self, data):
         try:
+            self.latest = data    # 无论成败都记录，徽章据此切换 ⚠/未配置
             if data.get("error") in ("NO_TOKEN", "NO_BASE_URL"):
                 self.failures = 0
             elif data.get("error"):
@@ -377,9 +387,9 @@ class UsageApp:
                 self.last_ok = datetime.now().strftime("%H:%M")
                 self.data = data
             self._render_badge()
-            self.root.after_idle(self._clamp_badge_position)
             if self.panel.winfo_ismapped():
                 self._render_panel()
+                self._position_panel()
         except Exception as exc:
             log(f"UI 更新异常: {exc!r}")
         finally:

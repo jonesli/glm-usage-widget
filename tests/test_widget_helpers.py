@@ -1,6 +1,7 @@
 import json
 import os
 import tempfile
+import tkinter as tk
 import unittest
 from unittest.mock import patch
 
@@ -123,13 +124,43 @@ class TestConfig(unittest.TestCase):
             self.assertEqual(cfg["refresh_interval_sec"], DEFAULTS["refresh_interval_sec"])
 
 
+class TestErrorStates(unittest.TestCase):
+    def test_badge_shows_warning_after_generic_error(self):
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            with patch.object(widget, "fetch_all", lambda: {"error": "off"}):
+                app = widget.UsageApp(root)
+            app.last_ok = "14:32"
+            app._apply_data({"error": "boom"})
+            root.update()
+            self.assertEqual(app.lb_icon.cget("text"), "")
+            self.assertEqual(app.lb_5h.cget("text"), "⚠ 14:32")
+        finally:
+            root.destroy()
+
+    def test_badge_shows_unconfigured(self):
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            with patch.object(widget, "fetch_all", lambda: {"error": "off"}):
+                app = widget.UsageApp(root)
+            app._apply_data({"error": "NO_TOKEN"})
+            root.update()
+            self.assertEqual(app.lb_5h.cget("text"), "⚡ 未配置")
+        finally:
+            root.destroy()
+
+
 class TestLog(unittest.TestCase):
     def test_log_writes_timestamped_line(self):
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "widget.log")
             with patch.object(widget, "LOG_PATH", path):
                 widget.log("hello")
-            content = open(path, encoding="utf-8").read()
+            content = ""
+            with open(path, encoding="utf-8") as f:
+                content = f.read()
             self.assertIn("hello", content)
             self.assertRegex(content, r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} hello\n$")
 
@@ -141,7 +172,8 @@ class TestLog(unittest.TestCase):
             with patch.object(widget, "LOG_PATH", path):
                 widget.log("fresh")
             self.assertLess(os.path.getsize(path), 10_000)
-            self.assertIn("fresh", open(path, encoding="utf-8").read())
+            with open(path, encoding="utf-8") as f:
+                self.assertIn("fresh", f.read())
 
     def test_log_swallows_os_errors(self):
         with tempfile.TemporaryDirectory() as d:
