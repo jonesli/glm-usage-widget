@@ -1,3 +1,4 @@
+import json
 import os
 import unittest
 from datetime import datetime
@@ -5,7 +6,7 @@ from unittest.mock import patch
 
 import usage_api
 from usage_api import (
-    format_tokens, get_base_url, query_window,
+    format_tokens, get_base_url, query_window, parse_quota,
 )
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
@@ -68,6 +69,28 @@ class TestGetBaseUrl(unittest.TestCase):
     def test_strips_whitespace(self):
         with patch.dict(os.environ, {"ANTHROPIC_BASE_URL": "  https://open.bigmodel.cn "}):
             self.assertEqual(get_base_url(), "https://open.bigmodel.cn")
+
+
+class TestParseQuota(unittest.TestCase):
+    def test_real_fixture(self):
+        data = json.loads(load_fixture("quota_limit.json"))
+        out = parse_quota(data)
+        self.assertEqual([w["percentage"] for w in out["token_windows"]], [5.0, 8.0])
+        self.assertEqual(out["mcp"], {"used": 38, "total": 4000, "percentage": 0.95})
+
+    def test_missing_fields(self):
+        out = parse_quota({})
+        self.assertEqual(out, {"token_windows": [], "mcp": None})
+
+    def test_garbage(self):
+        out = parse_quota("not a dict")
+        self.assertEqual(out["token_windows"], [])
+        self.assertIsNone(out["mcp"])
+
+    def test_zero_total_mcp_no_divide_by_zero(self):
+        out = parse_quota({"limits": [{"type": "TIME_LIMIT", "percentage": 0,
+                                       "currentUsage": 0, "usage": 0}]})
+        self.assertEqual(out["mcp"]["percentage"], 0.0)
 
 
 if __name__ == "__main__":

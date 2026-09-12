@@ -254,6 +254,8 @@ git commit -m "feat: usage_api 基础工具（token 格式化/查询窗口/域�
 
 > **审查后加固（Task 2 质量审查已实施）：** `_to_float` 捕获 `OverflowError` 并对非有限值（NaN/Inf）返回 default（`import math` + `math.isfinite`）；`format_tokens` 阈值改为 `>=999_950` 进 M、`>=999.5` 进 K（避免 999_999 显示成 "1000.0K"）；`get_base_url` 对环境变量值 `.strip()`；`now = now or datetime.now()` 全部改为 `if now is None:` 守卫。Task 3-6 转录时一律以加固后版本为准。
 
+---
+
 ### Task 3: parse_quota（5h 窗口 + MCP 月度）
 
 **Files:**

@@ -59,3 +59,27 @@ def get_base_url():
     if parts.scheme and parts.netloc:
         return f"{parts.scheme}://{parts.netloc}"
     return None
+
+
+def parse_quota(data):
+    """解析 quota/limit 响应 -> {"token_windows": [...], "mcp": {...}}。永不抛异常。"""
+    result = {"token_windows": [], "mcp": None}
+    if not isinstance(data, dict):
+        return result
+    limits = data.get("limits")
+    if not isinstance(limits, list):
+        return result
+    for item in limits:
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") == "TOKENS_LIMIT":
+            result["token_windows"].append({"percentage": _to_float(item.get("percentage"))})
+        elif item.get("type") == "TIME_LIMIT" and result["mcp"] is None:
+            used = _to_float(item.get("currentUsage"))
+            total = _to_float(item.get("usage"))
+            result["mcp"] = {
+                "used": int(used),
+                "total": int(total),
+                "percentage": (used / total * 100) if total > 0 else 0.0,
+            }
+    return result
