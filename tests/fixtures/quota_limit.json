@@ -1,0 +1,13 @@
+{
+  "limits": [
+    { "type": "TOKENS_LIMIT", "percentage": 5 },
+    { "type": "TOKENS_LIMIT", "percentage": 8 },
+    { "type": "TIME_LIMIT", "percentage": 1, "currentUsage": 38, "usage": 4000,
+      "usageDetails": [
+        { "modelCode": "search-prime", "usage": 36 },
+        { "modelCode": "web-reader", "usage": 2 },
+        { "modelCode": "zread", "usage": 0 }
+      ] }
+  ],
+  "level": "max"
+}
