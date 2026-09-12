@@ -1173,6 +1173,10 @@ git commit -m "feat: 展开面板（进度条/今日Token/MCP/24h迷你柱状图
 
 ---
 
+> **审查后修复（Task 8 质量审查，立即落地）：** ① 面板 `<Enter>` 绑定改为真正的 `_cancel_hide()`（取消 pending hide_job），`show_panel`/`_drag_start` 复用它——修复经徽章与面板翻转间隙进入面板时面板被自动收回的问题；② `hide_panel` 收回后清空 `hide_job`（消除过期句柄，`if self.hide_job` 守卫恢复诚实）；③ `show_panel` 的 `_render_panel()` 包 try/except + log（pythonw 下渲染异常不能静默杀死悬停）。
+>
+> **审查后修复（Task 8 质量审查，随 Task 9 必须同一提交落地）：** ① 面板网格行修正：`p_mcp_txt` → row 8、MCP 进度条 → row 9、`spark` → row 10（消除"其他"折叠行与 MCP 文本的同格叠印）；② `show_panel` 弃用硬编码 280x230（实测面板 299x270），改为 `update_idletasks()` 后用 `winfo_reqwidth()/winfo_reqheight()` 实测，横纵双向钳制、上/下双向翻转（否则面板盖住徽章、右缘裁 19px、贴近底部时柱状图出屏）；③ `_apply_position` 与 `_drag_end` 的屏幕钳制改用徽章实时尺寸（首次渲染后徽章为 161x31 而非 91x31，旧钳制允许右边 70px 出屏）；④ `_draw_spark` 柱高 `max(1, int(...))`（正的极小值画 1px 短柱而非不可见）。行修正会增加面板高度约 26px，几何量必须按最终布局一次算准。
+
 ### Task 9: 接入真实数据（后台线程、退避、异常兜底）
 
 **Files:**
