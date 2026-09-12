@@ -163,9 +163,7 @@ class UsageApp:
     def _drag_start(self, e):
         self._drag_dx, self._drag_dy = e.x, e.y
         self._dragging = True
-        if self.hide_job:
-            self.root.after_cancel(self.hide_job)
-            self.hide_job = None
+        self._cancel_hide()
         self.hide_panel()
 
     def _drag_end(self, e):
@@ -211,7 +209,7 @@ class UsageApp:
         self.panel.attributes("-alpha", 0.95)
         self.panel.configure(bg=BG)
         self.panel.withdraw()
-        self.panel.bind("<Enter>", lambda e: None)  # 悬停面板时不收回
+        self.panel.bind("<Enter>", lambda e: self._cancel_hide())
         self.panel.bind("<Leave>", self.schedule_hide)
         self.panel.bind("<Button-3>", lambda e: self.root.destroy())
 
@@ -300,13 +298,19 @@ class UsageApp:
         self._draw_spark()
 
     # ---------- 悬停展开/收回 ----------
-    def show_panel(self):
-        if self._dragging:
-            return
+    def _cancel_hide(self):
         if self.hide_job:
             self.root.after_cancel(self.hide_job)
             self.hide_job = None
-        self._render_panel()
+
+    def show_panel(self):
+        if self._dragging:
+            return
+        self._cancel_hide()
+        try:
+            self._render_panel()
+        except Exception as exc:
+            log(f"面板渲染异常: {exc!r}")
         bx, by = self.badge.winfo_x(), self.badge.winfo_y()
         screen_w = self.root.winfo_screenwidth()
         px = min(max(10, bx), screen_w - 280)
@@ -326,6 +330,7 @@ class UsageApp:
 
     def hide_panel(self):
         self.panel.withdraw()
+        self.hide_job = None
 
     @staticmethod
     def _inside(win, px, py):
