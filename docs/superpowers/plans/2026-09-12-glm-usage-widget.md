@@ -15,6 +15,7 @@
 **对 spec 的两点实施级补充**（不改变 spec 行为，属于落地必需）：
 1. 徽章**右键退出**程序（无边框窗口没有关闭按钮，必须有退出途径）
 2. 接口返回的 `modelSummaryList` 是整窗口径，与"今日"不一致；按模型分项改用 `modelDataList`（每模型逐小时数组）按今日标签聚合，与总数同口径
+3. 约定：每个任务的提交同时 `git add docs/`，让计划文档的勾选状态随代码一起进版本库
 
 ---
 
@@ -403,12 +404,13 @@ def parse_model_usage(data, now=None):
 
     查询窗口是"昨天 00:00 -> 现在"（最多 48 桶）：
     - hourly 取最后 24 桶作 24h 趋势
-    - today 按 x_time 标签前缀 == 今天日期 的桶求和
+    - today 按 x_time 标签属于今天且 <= now 的桶求和（排除未到达的桶）
     - 按模型分项用 modelDataList（每模型逐小时数组）做同口径今日聚合，
       不用 modelSummaryList（那是整窗口径）
     """
     now = now or datetime.now()
     today_key = now.strftime("%Y-%m-%d")
+    now_key = now.strftime("%Y-%m-%d %H:%M")
     out = {"today": {"total_tokens": 0, "models": []}, "hourly": []}
     if not isinstance(data, dict):
         return out
@@ -417,7 +419,8 @@ def parse_model_usage(data, now=None):
     if not isinstance(times, list) or not isinstance(usage, list):
         return out
 
-    today_flags = [str(label).startswith(today_key) for label in times]
+    today_flags = [str(label).startswith(today_key) and str(label) <= now_key
+                   for label in times]
     today_total = sum(_to_float(v) for v, flag in zip(usage, today_flags) if flag)
     buckets = [(str(label), _to_float(v)) for label, v in zip(times, usage)]
 
