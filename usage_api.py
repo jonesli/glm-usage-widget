@@ -5,6 +5,7 @@
 """
 
 import json
+import math
 import os
 import urllib.parse
 import urllib.request
@@ -19,9 +20,12 @@ class UsageError(Exception):
 
 def _to_float(x, default=0.0):
     try:
-        return float(x)
-    except (TypeError, ValueError):
+        val = float(x)
+    except (TypeError, ValueError, OverflowError):
         return default
+    if not math.isfinite(val):
+        return default
+    return val
 
 
 def format_tokens(n):
@@ -29,16 +33,17 @@ def format_tokens(n):
     n = _to_float(n, default=None)
     if n is None:
         return "0"
-    if n >= 1_000_000:
+    if n >= 999_950:
         return f"{n / 1_000_000:.1f}M"
-    if n >= 1_000:
+    if n >= 999.5:
         return f"{n / 1_000:.1f}K"
     return f"{int(n)}"
 
 
 def query_window(now=None):
     """查询窗口：昨天 00:00 -> 现在。返回 (start, end) 字符串。"""
-    now = now or datetime.now()
+    if now is None:
+        now = datetime.now()
     start = (now - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
     fmt = "%Y-%m-%d %H:%M:%S"
     return start.strftime(fmt), now.strftime(fmt)
@@ -46,7 +51,7 @@ def query_window(now=None):
 
 def get_base_url():
     """从 ANTHROPIC_BASE_URL 提取协议+域名；未设置或非法返回 None。"""
-    raw = os.environ.get("ANTHROPIC_BASE_URL", "")
+    raw = os.environ.get("ANTHROPIC_BASE_URL", "").strip()
     try:
         parts = urllib.parse.urlsplit(raw)
     except ValueError:

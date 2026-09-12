@@ -31,6 +31,16 @@ class TestFormatTokens(unittest.TestCase):
         self.assertEqual(format_tokens(None), "0")
         self.assertEqual(format_tokens("abc"), "0")
 
+    def test_boundaries(self):
+        self.assertEqual(format_tokens(1_000_000), "1.0M")
+        self.assertEqual(format_tokens(999_999), "1.0M")      # 不出现 1000.0K
+        self.assertEqual(format_tokens(999_949), "999.9K")
+
+    def test_nonfinite_and_overflow(self):
+        self.assertEqual(format_tokens(float("nan")), "0")
+        self.assertEqual(format_tokens(float("inf")), "0")
+        self.assertEqual(format_tokens(10**400), "0")
+
 
 class TestQueryWindow(unittest.TestCase):
     def test_window_is_yesterday_midnight_to_now(self):
@@ -49,6 +59,15 @@ class TestGetBaseUrl(unittest.TestCase):
         env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_BASE_URL"}
         with patch.dict(os.environ, env, clear=True):
             self.assertIsNone(get_base_url())
+
+    def test_schemeless_url(self):
+        env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_BASE_URL"}
+        with patch.dict(os.environ, {**env, "ANTHROPIC_BASE_URL": "open.bigmodel.cn/api"}):
+            self.assertIsNone(get_base_url())
+
+    def test_strips_whitespace(self):
+        with patch.dict(os.environ, {"ANTHROPIC_BASE_URL": "  https://open.bigmodel.cn "}):
+            self.assertEqual(get_base_url(), "https://open.bigmodel.cn")
 
 
 if __name__ == "__main__":

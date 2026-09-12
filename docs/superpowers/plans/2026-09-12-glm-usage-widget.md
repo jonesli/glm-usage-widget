@@ -252,7 +252,7 @@ git add usage_api.py tests/test_usage_api.py
 git commit -m "feat: usage_api 基础工具（token 格式化/查询窗口/域名提取）"
 ```
 
----
+> **审查后加固（Task 2 质量审查已实施）：** `_to_float` 捕获 `OverflowError` 并对非有限值（NaN/Inf）返回 default（`import math` + `math.isfinite`）；`format_tokens` 阈值改为 `>=999_950` 进 M、`>=999.5` 进 K（避免 999_999 显示成 "1000.0K"）；`get_base_url` 对环境变量值 `.strip()`；`now = now or datetime.now()` 全部改为 `if now is None:` 守卫。Task 3-6 转录时一律以加固后版本为准。
 
 ### Task 3: parse_quota（5h 窗口 + MCP 月度）
 
@@ -408,7 +408,8 @@ def parse_model_usage(data, now=None):
     - 按模型分项用 modelDataList（每模型逐小时数组）做同口径今日聚合，
       不用 modelSummaryList（那是整窗口径）
     """
-    now = now or datetime.now()
+    if now is None:
+        now = datetime.now()
     today_key = now.strftime("%Y-%m-%d")
     now_key = now.strftime("%Y-%m-%d %H:%M")
     out = {"today": {"total_tokens": 0, "models": []}, "hourly": []}
@@ -552,7 +553,8 @@ def fetch_json(url, token, timeout=TIMEOUT_SEC):
 def fetch_all(now=None, fetcher=fetch_json, token=None, base_url=None):
     """拉取并解析全部数据。永不抛异常：
     成功返回统一结构；失败返回 {"error": "<信息>"}。"""
-    now = now or datetime.now()
+    if now is None:
+        now = datetime.now()
     token = os.environ.get("ANTHROPIC_AUTH_TOKEN", "") if token is None else token
     base_url = base_url or get_base_url()
     if not token:
