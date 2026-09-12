@@ -109,3 +109,118 @@ def save_config(cfg, path=CONFIG_PATH):
         os.replace(tmp, path)
     except (OSError, TypeError, ValueError) as exc:
         log(f"写入配置失败: {exc}")
+
+
+class UsageApp:
+    def __init__(self, root):
+        self.root = root
+        self.cfg = load_config()
+        self.data = None          # 最近一次成功数据
+        self.failures = 0
+        self.last_ok = "--:--"
+        self.hide_job = None
+        self._build_badge()
+        self._apply_position()
+        self.root.after(200, self.refresh)
+
+    # ---------- 徽章 ----------
+    def _build_badge(self):
+        self.badge = tk.Toplevel(self.root)
+        self.badge.overrideredirect(True)
+        self.badge.attributes("-topmost", True)
+        self.badge.attributes("-alpha", 0.92)
+        self.badge.configure(bg=BG)
+        bar = tk.Frame(self.badge, bg=BG)
+        bar.pack(fill="both", expand=True, padx=8, pady=4)
+        self.lb_icon = tk.Label(bar, text="⚡", font=FONT, bg=BG, fg=COL_DIM)
+        self.lb_5h = tk.Label(bar, text="…", font=FONT, bg=BG, fg=COL_DIM)
+        lb_sep = tk.Label(bar, text="│", font=FONT, bg=BG, fg=COL_DIM)
+        self.lb_mcp = tk.Label(bar, text="…", font=FONT, bg=BG, fg=COL_DIM)
+        self.lb_icon.pack(side="left")
+        self.lb_5h.pack(side="left")
+        lb_sep.pack(side="left", padx=3)
+        self.lb_mcp.pack(side="left")
+        # 交互：拖动 / 悬停展开 / 右键退出（无边框窗口的退出途径）
+        self.badge.bind("<Button-1>", self._drag_start)
+        self.badge.bind("<B1-Motion>", self._drag_move)
+        self.badge.bind("<ButtonRelease-1>", self._drag_end)
+        self.badge.bind("<Enter>", lambda e: self.show_panel())
+        self.badge.bind("<Leave>", self.schedule_hide)
+        self.badge.bind("<Button-3>", lambda e: self.root.destroy())
+
+    def _apply_position(self):
+        x, y = self.cfg["badge_position"]
+        self.badge.geometry(f"+{x}+{y}")
+
+    def _drag_start(self, e):
+        self._drag_dx, self._drag_dy = e.x, e.y
+        self.hide_panel()
+
+    def _drag_move(self, e):
+        x = self.badge.winfo_x() - self._drag_dx + e.x
+        y = self.badge.winfo_y() - self._drag_dy + e.y
+        self.badge.geometry(f"+{x}+{y}")
+
+    def _drag_end(self, e):
+        self.cfg["badge_position"] = [self.badge.winfo_x(), self.badge.winfo_y()]
+        save_config(self.cfg)
+
+    def _render_badge(self):
+        parts = badge_parts(self.data, self.last_ok,
+                            self.cfg["warn_threshold"], self.cfg["alert_threshold"])
+        # parts 长度 1 = 异常态：占满 5h 位，MCP 位清空
+        if len(parts) == 1:
+            self.lb_5h.configure(text=parts[0][0], fg=parts[0][1])
+            self.lb_mcp.configure(text="")
+        else:
+            self.lb_5h.configure(text=parts[0][0], fg=parts[0][1])
+            self.lb_mcp.configure(text=parts[1][0], fg=parts[1][1])
+
+    # ---------- 悬停展开/收回（Task 8 填充面板内容，本任务先做空实现）----------
+    def show_panel(self):
+        if self.hide_job:
+            self.root.after_cancel(self.hide_job)
+            self.hide_job = None
+
+    def schedule_hide(self, e=None):
+        px, py = self.root.winfo_pointerxy()
+        if self._inside(self.badge, px, py):
+            return  # 跨子控件触发的假 Leave
+        if self.hide_job:
+            self.root.after_cancel(self.hide_job)
+        self.hide_job = self.root.after(500, self.hide_panel)
+
+    def hide_panel(self):
+        pass
+
+    @staticmethod
+    def _inside(win, px, py):
+        if not win.winfo_ismapped():
+            return False
+        x, y = win.winfo_rootx(), win.winfo_rooty()
+        return x <= px <= x + win.winfo_width() and y <= py <= y + win.winfo_height()
+
+    # ---------- 数据刷新（Task 9 接入真实拉取，本任务先用静态演示数据）----------
+    def refresh(self):
+        self._apply_data({"token_windows": [{"percentage": 5.0}, {"percentage": 8.0}],
+                          "mcp": {"used": 38, "total": 4000, "percentage": 0.95},
+                          "today": {"total_tokens": 5517208, "models": []},
+                          "hourly": [], "fetched_at": ""})
+
+    def _apply_data(self, data):
+        try:
+            self.data = data
+            self._render_badge()
+        except Exception as exc:
+            log(f"UI 更新异常: {exc!r}")
+
+
+def main():
+    root = tk.Tk()
+    root.withdraw()
+    UsageApp(root)
+    root.mainloop()
+
+
+if __name__ == "__main__":
+    main()
