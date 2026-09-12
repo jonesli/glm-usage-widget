@@ -62,7 +62,11 @@ def get_base_url():
 
 
 def parse_quota(data):
-    """解析 quota/limit 响应 -> {"token_windows": [...], "mcp": {...}}。永不抛异常。"""
+    """解析 quota/limit 响应 -> {"token_windows": [...], "mcp": {...}}。永不抛异常。
+
+    MCP 百分比按 currentUsage/usage 现场重算（API 的 percentage 是四舍五入值）；
+    字段映射：currentUsage -> used（已用），usage -> total（总量，API 命名如此）。
+    """
     result = {"token_windows": [], "mcp": None}
     if not isinstance(data, dict):
         return result
@@ -83,3 +87,51 @@ def parse_quota(data):
                 "percentage": (used / total * 100) if total > 0 else 0.0,
             }
     return result
+
+
+def parse_model_usage(data, now=None):
+    """解析 model-usage 响应 -> {"today": {...}, "hourly": [...]}。永不抛异常。
+
+    查询窗口是"昨天 00:00 -> 现在"（最多 48 桶）：
+    - hourly 取最后 24 桶作 24h 趋势
+    - today 按 x_time 标签属于今天且 <= now 的桶求和（排除未到达的桶）
+    - 按模型分项用 modelDataList（每模型逐小时数组）做同口径今日聚合，
+      不用 modelSummaryList（那是整窗口径）
+    """
+    if now is None:
+        now = datetime.now()
+    today_key = now.strftime("%Y-%m-%d")
+    now_key = now.strftime("%Y-%m-%d %H:%M")
+    out = {"today": {"total_tokens": 0, "models": []}, "hourly": []}
+    if not isinstance(data, dict):
+        return out
+    times = data.get("x_time")
+    usage = data.get("tokensUsage")
+    if not isinstance(times, list) or not isinstance(usage, list):
+        return out
+
+    today_flags = [str(label).startswith(today_key) and str(label) <= now_key
+                   for label in times]
+    today_total = sum(_to_float(v) for v, flag in zip(usage, today_flags) if flag)
+    buckets = [(str(label), _to_float(v)) for label, v in zip(times, usage)]
+
+    per_model = {}
+    model_rows = data.get("modelDataList")
+    if isinstance(model_rows, list):
+        for row in model_rows:
+            if not isinstance(row, dict):
+                continue
+            name = str(row.get("modelName", "?"))
+            arr = row.get("tokensUsage")
+            if isinstance(arr, list):
+                per_model[name] = sum(
+                    _to_float(v) for v, flag in zip(arr, today_flags) if flag
+                )
+
+    out["hourly"] = buckets[-24:]
+    out["today"] = {
+        "total_tokens": today_total,
+        "models": [{"name": k, "tokens": v}
+                   for k, v in sorted(per_model.items(), key=lambda kv: -kv[1])],
+    }
+    return out

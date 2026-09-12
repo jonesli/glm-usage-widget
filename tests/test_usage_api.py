@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import usage_api
 from usage_api import (
-    format_tokens, get_base_url, query_window, parse_quota,
+    format_tokens, get_base_url, query_window, parse_quota, parse_model_usage,
 )
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
@@ -91,6 +91,49 @@ class TestParseQuota(unittest.TestCase):
         out = parse_quota({"limits": [{"type": "TIME_LIMIT", "percentage": 0,
                                        "currentUsage": 0, "usage": 0}]})
         self.assertEqual(out["mcp"]["percentage"], 0.0)
+
+    def test_first_time_limit_wins(self):
+        out = parse_quota({"limits": [{"type": "TIME_LIMIT", "currentUsage": 1, "usage": 10},
+                                      {"type": "TIME_LIMIT", "currentUsage": 9, "usage": 10}]})
+        self.assertEqual(out["mcp"]["used"], 1)
+
+    def test_limits_not_list_and_non_dict_entries(self):
+        self.assertEqual(parse_quota({"limits": "x"})["token_windows"], [])
+        out = parse_quota({"limits": [None, 42, {"type": "TOKENS_LIMIT", "percentage": 5}]})
+        self.assertEqual([w["percentage"] for w in out["token_windows"]], [5.0])
+
+
+class TestParseModelUsage(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.data = json.loads(load_fixture("model_usage.json"))
+
+    def test_hourly_is_last_24_buckets(self):
+        out = parse_model_usage(self.data, now=datetime(2026, 9, 12, 19, 0, 0))
+        self.assertEqual(len(out["hourly"]), 24)          # fixture 有 25 个桶
+        self.assertEqual(out["hourly"][0][0], "2026-09-11 18:00")
+        self.assertEqual(out["hourly"][-1][1], 3715930.0)
+
+    def test_today_total(self):
+        out = parse_model_usage(self.data, now=datetime(2026, 9, 12, 19, 0, 0))
+        self.assertEqual(out["today"]["total_tokens"], 55_172_080)
+
+    def test_today_models_same_source(self):
+        out = parse_model_usage(self.data, now=datetime(2026, 9, 12, 19, 0, 0))
+        models = {m["name"]: m["tokens"] for m in out["today"]["models"]}
+        # GLM-5.3 在 09-12 14:00 有 5215596；Flash 为今日总量减去它
+        self.assertEqual(models["GLM-5.3"], 5_215_596)
+        self.assertEqual(models["GLM-5.3-Flash"], 55_172_080 - 5_215_596)
+
+    def test_cross_midnight(self):
+        out = parse_model_usage(self.data, now=datetime(2026, 9, 12, 0, 30, 0))
+        self.assertEqual(out["today"]["total_tokens"], 2_253_571)  # 仅 09-12 00:00 桶
+
+    def test_missing_or_garbage(self):
+        out = parse_model_usage({}, now=datetime(2026, 9, 12))
+        self.assertEqual(out["hourly"], [])
+        out = parse_model_usage("bad", now=datetime(2026, 9, 12))
+        self.assertEqual(out["today"]["total_tokens"], 0)
 
 
 if __name__ == "__main__":
