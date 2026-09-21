@@ -955,6 +955,8 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 
 ---
 
+> **审查后加固（P2-Task5 质量审查通过，ride-along 随 Task 6 落地）：** ① I1：--auth 孙进程恢复 `if _fails: os._exit(1)`，run_auth 检查 returncode 无 T14 行时补记 FAILS（消除"子进程崩溃→静默全绿"路径）；② I2+M1：config 暂存抽成 `staged_config()` 上下文管理器，备份先落 sidecar（config.json.e2e-backup），main() 启动时先恢复遗留 sidecar（子进程被硬杀不留死局），恢复写盘走 .tmp+os.replace；③ M2/M4/M5：T11 注释补"依赖 Tk 在原生模态循环内服务 after 定时器"假设与 Esc 提示、magic number 改从 trayicon 导入、main() 注释修正。计划正文 Task 5 的 T11a/T13 代码块以实现版为准（已注记）。
+
 ### Task 6: README 更新与全量回归
 
 **Files:**

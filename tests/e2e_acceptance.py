@@ -9,6 +9,7 @@
 注意：运行时屏幕上会闪现徽章/面板/托盘图标数秒，属正常现象。
 """
 
+import contextlib
 import ctypes
 import json
 import os
@@ -23,6 +24,7 @@ APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, APP_DIR)
 
 import widget
+from trayicon import WM_APP_TRAY, WM_LBUTTONUP
 from usage_api import fetch_all, format_tokens
 
 FAILS = []
@@ -36,6 +38,34 @@ def check(name, ok, detail=""):
 
 def in_range(actual, expect, tol=2):
     return all(abs(a - e) <= tol for a, e in zip(actual, expect))
+
+
+@contextlib.contextmanager
+def staged_config():
+    """暂存真实 config.json（sidecar 落盘防硬杀丢失），with 块内处于"无 config"状态。
+
+    子进程被硬杀时 finally 不会执行——sidecar 兜底：main() 启动时恢复遗留 sidecar。
+    """
+    cfg_path = widget.CONFIG_PATH
+    backup_path = cfg_path + ".e2e-backup"
+    backup = None
+    if os.path.exists(cfg_path):
+        backup = open(cfg_path, "rb").read()
+        with open(backup_path, "wb") as f:
+            f.write(backup)
+        os.remove(cfg_path)
+    try:
+        yield
+    finally:
+        if backup is not None:
+            tmp = backup_path + ".tmp"
+            with open(tmp, "wb") as f:
+                f.write(backup)
+            os.replace(tmp, cfg_path)
+            if os.path.exists(backup_path):
+                os.remove(backup_path)
+        elif os.path.exists(backup_path):
+            os.replace(backup_path, cfg_path)
 
 
 def run_e2e():
@@ -121,6 +151,7 @@ def run_e2e():
     # T11 右键菜单。Windows 的 tk_popup 走原生 TrackPopupMenu 模态循环（阻塞在
     # post 内，winfo_ismapped 观察不到原生菜单）：after 回调能在该循环内执行即证明
     # 菜单真实弹出，随后 EndMenu() 退出循环。绑定被替换为探针但内部仍走真实 handler。
+    # 依赖：Tk 会在原生模态循环内服务 after 定时器（Win11/Tk8.6 实测成立）；若失效 T11a 会 FAIL 且菜单残留，Esc 可关。运行期间误点鼠标也可能假失败。
     menu_state = {"binding": False, "in_modal": False, "returned": False}
     orig_popup = app.popup_badge_menu
 
@@ -164,7 +195,7 @@ def run_e2e():
             root.after(25, poll_restore)
 
     root.after(25, poll_restore)
-    user32.PostMessageW(tray_hwnd, 0x8001, 0, 0x0202)   # WM_APP_TRAY + WM_LBUTTONUP
+    user32.PostMessageW(tray_hwnd, WM_APP_TRAY, 0, WM_LBUTTONUP)
     root.mainloop()
     elapsed = time.time() - t0
     check("T13 托盘恢复(真实桥接<0.5s)",
@@ -185,16 +216,10 @@ def run_offline():
     """子进程模式：BASE_URL 指向不可达端口，走真实 socket 失败 → 徽章应显示 ⚠。
 
     凭据优先取 config（env 永不覆盖），真实 config 已带凭据时 env 失效、
-    会真连生产接口——故先暂存移走 config 模拟未配置环境，finally 恢复；
+    会真连生产接口——故先暂存移走 config 模拟未配置环境，结束后恢复；
     token 缺失时给占位值（端口不可达，凭据从不真正外发）。
     """
-    cfg_path = widget.CONFIG_PATH
-    backup = None
-    if os.path.exists(cfg_path):
-        backup = open(cfg_path, "rb").read()
-    try:
-        if backup is not None:
-            os.remove(cfg_path)
+    with staged_config():
         os.environ["ANTHROPIC_AUTH_TOKEN"] = \
             os.environ.get("ANTHROPIC_AUTH_TOKEN") or "e2e-offline-token"
         os.environ["ANTHROPIC_BASE_URL"] = "http://127.0.0.1:9"
@@ -224,11 +249,6 @@ def run_offline():
         if not state["done"]:                # mainloop 提前结束（异常路径）
             print("FAIL T8 断网模拟 | mainloop 提前退出", flush=True)
             FAILS.append("T8 断网模拟")
-    finally:
-        if backup is not None:
-            open(cfg_path, "wb").write(backup)
-        elif os.path.exists(cfg_path):
-            os.remove(cfg_path)
 
 
 def run_memory():
@@ -252,14 +272,8 @@ def run_memory():
 
 def run_auth():
     """子进程：备份真实 config → 假 env 触发迁移 → 断言写入与 ⚠ → 恢复备份。"""
-    cfg_path = widget.CONFIG_PATH
-    backup = None
-    if os.path.exists(cfg_path):
-        backup = open(cfg_path, "rb").read()
-    try:
-        # 迁移仅在 config 缺凭据时发生：先移走真实 config 模拟全新环境（finally 恢复）
-        if backup is not None:
-            os.remove(cfg_path)
+    with staged_config():
+        # 迁移仅在 config 缺凭据时发生：暂存移走真实 config 模拟全新环境
         env = {k: v for k, v in os.environ.items()
                if k not in ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL")}
         env["ANTHROPIC_AUTH_TOKEN"] = "e2e-fake-token"
@@ -269,6 +283,7 @@ def run_auth():
 import sys, tkinter as tk
 sys.path.insert(0, r'{APP_DIR}')
 import widget
+_fails = []
 root = tk.Tk(); root.withdraw()
 app = widget.UsageApp(root)
 deadline = __import__('time').time() + 12
@@ -282,10 +297,15 @@ def poll():
         written = False
     ok = written and txt.startswith('⚠')
     print(('PASS ' if ok else 'FAIL ') + f'T14 认证迁移 | badge={{txt}} written={{written}}', flush=True)
+    if not ok:
+        _fails.append('T14 认证迁移')
     root.destroy()
 app.refresh()
 root.after(250, poll)
 root.mainloop()
+if _fails:
+    sys.stdout.flush(); __import__('os')._exit(1)
+sys.stdout.flush(); __import__('os')._exit(0)
 """
         result = subprocess.run([sys.executable, "-c", code], env=env, cwd=APP_DIR,
                                 timeout=40, capture_output=True, text=True,
@@ -296,14 +316,21 @@ root.mainloop()
         for line in (result.stdout or "").splitlines():   # FAIL 行回填，让退出码有意义
             if line.startswith("FAIL"):
                 FAILS.append(line.split("|")[0].strip()[len("FAIL "):])
-    finally:
-        if backup is not None:
-            open(cfg_path, "wb").write(backup)
-        elif os.path.exists(cfg_path):
-            os.remove(cfg_path)
+        if result.returncode != 0 and not any("T14" in line
+                                              for line in (result.stdout or "").splitlines()):
+            FAILS.append("T14 认证迁移(子进程异常退出)")
+            print("FAIL T14 认证迁移(子进程异常退出)", flush=True)
 
 
 def main():
+    # 崩溃恢复：上次运行被硬杀时 staged_config 的 finally 未执行，遗留 sidecar
+    # （真实 config 在其中）。config 缺失则恢复之；config 存在则以 config 为准弃 sidecar。
+    leftover = widget.CONFIG_PATH + ".e2e-backup"
+    if os.path.exists(leftover) and not os.path.exists(widget.CONFIG_PATH):
+        os.replace(leftover, widget.CONFIG_PATH)
+        print("PASS T0 恢复上次运行遗留的 config 备份", flush=True)
+    elif os.path.exists(leftover):
+        os.remove(leftover)
     if "--auth" in sys.argv:
         run_auth()
         sys.stdout.flush()
@@ -317,8 +344,8 @@ def main():
         sys.stdout.flush()
         os._exit(1 if FAILS else 0)
 
-    # 先跑独立子进程检查（结果不受主进程 Tk 拆卸影响；auth 需暂存/恢复 config，
-    # 必须最先跑，避免其后的检查读到被移走的 config）
+    # 先跑独立子进程检查（结果不受主进程 Tk 拆卸影响）。顺序执行无并发；
+    # auth-first 只是让最有风险的暂存最先跑。
     env = dict(os.environ)
     env["ANTHROPIC_BASE_URL"] = "http://127.0.0.1:9"
     env["PYTHONIOENCODING"] = "utf-8"

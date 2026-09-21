@@ -10,8 +10,9 @@ cd D:\workspace\ai\glm-usage-widget
 pythonw widget.py
 ```
 
-前提：环境变量 `ANTHROPIC_AUTH_TOKEN` 与 `ANTHROPIC_BASE_URL` 已设置
-（与 Claude Code 使用 GLM 时的配置相同）。未设置时徽章显示"未配置"。
+前提：认证配置在 config.json 的 `token` / `base_url` 字段（该文件不会提交到 git）。
+首次启动会自动从环境变量 `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_BASE_URL` 迁移写入；
+环境变量仅作兜底。未配置时徽章显示"未配置"。
 
 ## 操作
 
@@ -20,7 +21,9 @@ pythonw widget.py
 | 鼠标悬停徽章 | 展开详细面板 |
 | 移出面板 | 约 0.5s 后自动收回 |
 | 左键拖动 | 移动位置（松手自动保存） |
-| 右键 | 退出程序 |
+| 右键徽章/面板 | 弹出菜单：最小化到系统任务栏 / 退出 |
+| 托盘图标左键 | 恢复徽章 |
+| 托盘图标右键 | 菜单：恢复 / 退出 |
 
 ## 开机自启（可选）
 
@@ -39,6 +42,8 @@ pythonw widget.py
 | alert_threshold | 80 | >=此百分比变红 |
 | warn_threshold | 50 | >=此百分比变黄 |
 | badge_position | [80,80] | 徽章位置（拖动自动更新） |
+| token | （空） | 接口认证 token，自动从环境变量迁移；不会提交到 git |
+| base_url | （空） | 接口域名（协议+域名即可），同样自动迁移 |
 
 配置为异常时按字段回退默认值。注意：**warn 与 alert 是成对校验的**——
 若 alert <= warn，两个字段会整体回退默认值，不会出现"只改一个"的中间态。
@@ -52,6 +57,10 @@ pythonw widget.py
   临时调小）。断网时徽章显示黄色 `⚠ 最后成功时间`。
 - **错误与日志**：接口异常（含 token 过期，服务端返回 code 非 200）会走错误
   路径并在 `widget.log` 记录（超过 1MB 自动清空重写），不会静默显示假数据。
+- **最小化到托盘**：徽章隐藏后通知区域（右下角）出现图标，后台轮询照常；左键图标
+  恢复。托盘创建失败时徽章保持显示、可再次右键重试（不会藏起来找不回）。
+- **更换 token**：直接编辑 config.json 的 token 字段后重启；清空该字段并移除环境
+  变量再重启则回到"未配置"状态（仅清 config 而留环境变量会被重新迁移）。
 
 ## 资源占用
 
@@ -60,8 +69,8 @@ pythonw widget.py
 ## 测试
 
 ```bash
-python -m unittest -v                      # 54 项单元/组件测试
-python tests/e2e_acceptance.py             # 14 项端到端验收（屏幕会闪现窗口）
+python -m unittest -v                      # 79 项单元/组件测试
+python tests/e2e_acceptance.py             # 20 项端到端验收（屏幕会闪现窗口/托盘图标）
 ```
 
 ## 数据来源
