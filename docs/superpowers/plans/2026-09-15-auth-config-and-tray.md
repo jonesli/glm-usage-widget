@@ -16,6 +16,8 @@
 
 **对 spec 的一处实施级简化（不改变行为承诺）：** 托盘菜单为 [恢复, 退出] 两项——spec 原文"在徽章菜单基础上多一项恢复"中的"最小化"项在 minimized 态无意义，省去。
 
+> **审查后加固（P2-Task1 质量审查已实施）：** ① TestResolveAuth 四个测试一律使用密闭 env（预过滤 + `clear=True` 再放假变量）——修复"只 patch 单变量导致真实 token 被写进临时 config.json"的凭据泄漏；② 测试内 `open()` 改 with 消除 ResourceWarning；③ **Task 4 ride-along**：`_drag_end` 收窄为只持久化 `badge_position`（防止拖动把用户手工删除的 token"复活"写回）；④ **Task 6 ride-along**：README 增加"更换 token：直接改 config.json（或清空该字段后重启即重新从 env 迁移）"说明。
+
 ---
 
 ### Task 1: 配置层——字符串字段 + resolve_auth 迁移

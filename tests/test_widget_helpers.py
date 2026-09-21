@@ -13,6 +13,14 @@ from widget import (
 )
 
 
+def hermetic_env(**overrides):
+    """构造不携带本机真实 ANTHROPIC_* 变量的密闭环境，再叠加覆盖项。"""
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL")}
+    env.update(overrides)
+    return env
+
+
 class TestColorFor(unittest.TestCase):
     def test_bands(self):
         self.assertEqual(color_for(10, 50, 80), COL_OK)
@@ -209,13 +217,14 @@ class TestResolveAuth(unittest.TestCase):
     def test_migrates_from_env_and_persists(self):
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "config.json")
-            env = {"ANTHROPIC_AUTH_TOKEN": "  tok-1  ",
-                   "ANTHROPIC_BASE_URL": "https://x.example/api/anthropic"}
-            with patch.dict(os.environ, env):
+            with patch.dict(os.environ, hermetic_env(
+                    ANTHROPIC_AUTH_TOKEN="  tok-1  ",
+                    ANTHROPIC_BASE_URL="https://x.example/api/anthropic")):
                 cfg = resolve_auth(load_config(path), path)
             self.assertEqual(cfg["token"], "tok-1")
             self.assertEqual(cfg["base_url"], "https://x.example")   # 规范化为协议+域名
-            saved = json.load(open(path, encoding="utf-8"))
+            with open(path, encoding="utf-8") as f:
+                saved = json.load(f)
             self.assertEqual(saved["token"], "tok-1")
             self.assertEqual(saved["base_url"], "https://x.example")
 
@@ -224,16 +233,14 @@ class TestResolveAuth(unittest.TestCase):
             path = os.path.join(d, "config.json")
             with open(path, "w", encoding="utf-8") as f:
                 json.dump({"token": "cfg-token"}, f)
-            with patch.dict(os.environ, {"ANTHROPIC_AUTH_TOKEN": "env-token"}):
+            with patch.dict(os.environ, hermetic_env(ANTHROPIC_AUTH_TOKEN="env-token")):
                 cfg = resolve_auth(load_config(path), path)
             self.assertEqual(cfg["token"], "cfg-token")
 
     def test_empty_env_leaves_file_unwritten(self):
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "config.json")
-            env = {k: v for k, v in os.environ.items()
-                   if k not in ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL")}
-            with patch.dict(os.environ, env, clear=True):
+            with patch.dict(os.environ, hermetic_env(), clear=True):
                 cfg = resolve_auth(load_config(path), path)
             self.assertEqual(cfg["token"], "")
             self.assertFalse(os.path.exists(path))
@@ -241,7 +248,7 @@ class TestResolveAuth(unittest.TestCase):
     def test_base_url_stripped(self):
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "config.json")
-            with patch.dict(os.environ, {"ANTHROPIC_BASE_URL": "  https://x.example "}):
+            with patch.dict(os.environ, hermetic_env(ANTHROPIC_BASE_URL="  https://x.example ")):
                 cfg = resolve_auth(load_config(path), path)
             self.assertEqual(cfg["base_url"], "https://x.example")
 
