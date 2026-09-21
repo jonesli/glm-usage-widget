@@ -358,7 +358,7 @@ class TestTrayStates(unittest.TestCase):
                 root.update()
             self.assertFalse(app.minimized)
             self.assertTrue(bool(app.badge.winfo_ismapped()))
-            self.assertEqual(app.badge_menu.index("end"), 0)   # 只剩"退出"
+            self.assertEqual(app.badge_menu.index("end"), 1)   # 菜单保留两项（可重试）
         finally:
             root.destroy()
 
@@ -390,6 +390,41 @@ class TestTrayStates(unittest.TestCase):
                     saved = json.load(f)
             self.assertEqual(saved["token"], "")                 # 未复活
             self.assertEqual(saved["badge_position"], [123, 456])
+        finally:
+            root.destroy()
+
+    def test_tray_restore_bridge_wired(self):
+        root, app = self._make_app()
+        try:
+            with patch.object(widget, "TrayIcon") as FakeTray:
+                FakeTray.return_value.show.return_value = True
+                app.minimize_to_tray()
+                root.update()
+                on_restore = FakeTray.call_args.kwargs["on_restore"]
+                on_restore()                     # 模拟消息线程回调
+                root.update()
+            self.assertFalse(app.minimized)
+            self.assertTrue(bool(app.badge.winfo_ismapped()))
+        finally:
+            root.destroy()
+
+    def test_restore_when_not_minimized_is_noop(self):
+        root, app = self._make_app()
+        try:
+            app.restore_from_tray()              # 幂等：非 minimized 态无异常、状态不变
+            root.update()
+            self.assertFalse(app.minimized)
+        finally:
+            root.destroy()
+
+    def test_drag_end_skips_save_when_disk_read_fails(self):
+        root, app = self._make_app()
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                missing = os.path.join(d, "nope", "config.json")   # 父目录不存在 → OSError
+                with patch.object(widget, "CONFIG_PATH", missing):
+                    app._drag_end(SimpleNamespace(x=0, y=0))
+                self.assertFalse(os.path.exists(missing))          # 读失败 → 不写盘
         finally:
             root.destroy()
 

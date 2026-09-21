@@ -124,6 +124,7 @@ class TrayIcon:
 
     def hide(self):
         """移除图标并停止消息线程。"""
+        self._ok = False          # 已停用；超时后 show() 的 alive-guard 早退返回 False
         self._stop.set()
         if self._hwnd:
             ctypes.windll.user32.PostMessageW(self._hwnd, WM_CLOSE, 0, 0)
@@ -181,11 +182,11 @@ class TrayIcon:
         nid.uID = 1
         nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP
         nid.uCallbackMessage = WM_APP_TRAY
-        nid.hIcon = self._build_icon(user32)
-        nid.szTip = (self.tip or "")[:127]
-        self._hicon = nid.hIcon
         added = False
         try:
+            nid.hIcon = self._build_icon(user32)
+            nid.szTip = (self.tip or "")[:127]
+            self._hicon = nid.hIcon
             self._hwnd = user32.CreateWindowExW(0, self._class_name, "glm-tray", 0,
                                                 0, 0, 0, 0, HWND_MESSAGE, None,
                                                 hinst, None)

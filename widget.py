@@ -162,7 +162,7 @@ class UsageApp:
         self._apply_position()
         self.root.bind("<<TrayRestore>>", lambda e: self.restore_from_tray())
         self.root.bind("<<TrayMenu>>", lambda e: self.show_tray_menu())
-        self.root.after(200, self.refresh)
+        self._refresh_job = self.root.after(200, self.refresh)
 
     # ---------- 徽章 ----------
     def _build_badge(self):
@@ -215,9 +215,16 @@ class UsageApp:
     def _drag_end(self, e):
         self._dragging = False
         self.cfg["badge_position"] = [self.badge.winfo_x(), self.badge.winfo_y()]
-        # 以磁盘文件为基底保存：保留用户对 token/base_url 的手工改动（包括删除），
-        # 仅覆盖四个运行时已知会变化的键。CONFIG_PATH 显式传当前值（调用时求值，可测试）。
-        disk = load_config(CONFIG_PATH)
+        # 严格读盘：失败则跳过保存（不能用可能为默认值的基底覆盖真实凭据）；
+        # 直接读 JSON 保留磁盘上的未知键
+        try:
+            with open(CONFIG_PATH, encoding="utf-8") as f:
+                disk = json.load(f)
+            if not isinstance(disk, dict):
+                raise ValueError("config 根不是对象")
+        except (OSError, ValueError) as exc:
+            log(f"拖动保存跳过：读取 config 失败 {exc!r}")
+            return
         merged = dict(disk)
         for key in ("refresh_interval_sec", "alert_threshold",
                     "warn_threshold", "badge_position"):
@@ -272,11 +279,10 @@ class UsageApp:
             self.badge_menu.grab_release()
 
     def show_tray_menu(self):
-        """托盘右键：在屏幕右下角（托盘附近）弹菜单。"""
-        sw = self.root.winfo_screenwidth()
-        sh = self.root.winfo_screenheight()
+        """托盘右键：在指针处（即托盘图标上）弹菜单，天然适配任意任务栏位置。"""
+        px, py = self.root.winfo_pointerxy()
         try:
-            self.tray_menu.tk_popup(sw - 160, sh - 140)
+            self.tray_menu.tk_popup(px, py)
         finally:
             self.tray_menu.grab_release()
 
@@ -290,14 +296,11 @@ class UsageApp:
                 on_menu=lambda: self.root.event_generate("<<TrayMenu>>"),
             )
         if not self._tray.show():
-            log("托盘图标创建失败，右键菜单已移除最小化项")
+            log("托盘图标创建失败，徽章保持显示（可再次右键重试）")
             self._tray = None
-            try:
-                self.badge_menu.delete(0)      # 移除"最小化"，只剩"退出"
-            except tk.TclError:
-                pass
             return
         self.minimized = True
+        self._cancel_hide()      # 防悬挂的 hide_job 在最小化→恢复→快速悬停后把面板拽出来
         self.hide_panel()
         self.badge.withdraw()
 
@@ -305,9 +308,11 @@ class UsageApp:
         if not self.minimized:
             return
         self.minimized = False
-        if self._tray:
-            self._tray.hide()
         self.badge.deiconify()
+        if self._tray:
+            tray, self._tray = self._tray, None
+            self.root.after(0, tray.hide)   # hide 会 join 消息线程；此处处于其封送的
+            # event_generate 调用内，同步 join 会循环等待 3 秒超时——必须延后到空闲时执行
 
     def quit_app(self):
         try:
@@ -315,6 +320,11 @@ class UsageApp:
                 self._tray.hide()
         except Exception as exc:
             log(f"托盘清理异常: {exc!r}")
+        if getattr(self, "_refresh_job", None):
+            try:
+                self.root.after_cancel(self._refresh_job)
+            except Exception:
+                pass
         self.root.destroy()
 
     def _build_panel(self):
@@ -499,8 +509,13 @@ class UsageApp:
         except Exception as exc:
             log(f"UI 更新异常: {exc!r}")
         finally:
+            if getattr(self, "_refresh_job", None):
+                try:
+                    self.root.after_cancel(self._refresh_job)
+                except Exception:
+                    pass
             delay = next_interval_sec(self.failures, self.cfg["refresh_interval_sec"])
-            self.root.after(delay * 1000, self.refresh)
+            self._refresh_job = self.root.after(delay * 1000, self.refresh)
 
 
 def main():

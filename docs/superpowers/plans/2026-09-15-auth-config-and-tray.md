@@ -811,6 +811,8 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 
 ---
 
+> **审查后修复（P2-Task4 质量审查 fix-first，已实施）：** ① **C1**：托盘左键恢复经 event_generate 同步封送，绑定内 `tray.hide()` join 消息线程形成循环等待（实测冻结 3.01s）——`restore_from_tray` 改为先 deiconify、再 `root.after(0, tray.hide)` 延后清理并置 `_tray=None`；② **I1**：`hide()` 首行置 `_ok=False`（超时后 show() 不得谎报成功——"藏起来找不回"死局）；③ **I2**：`_drag_end` 改为直接读盘 JSON（严格失败→log+跳过保存），不再用可能为默认值的合并基底覆盖真实凭据；顺带保留磁盘未知键；④ M2 修正：show() 失败不再删除菜单项（每次点击自然重试，spec 意图"绝不藏起来找不回"保持）；⑤ M3：minimize 前 `_cancel_hide()`；⑥ M4：托盘菜单位置改 `winfo_pointerxy()`；⑦ M5(e)：刷新定时器改存句柄、重排时取消旧任务、quit_app 取消；⑧ M6：trayicon 的 `_build_icon` 移入 try。**Task 5 的 T13 必须走真实桥接并限时断言（上文已改），直接调用 restore_from_tray 无法发现 C1 类回归。** 新增 3 个单测：桥接 lambda、restore 幂等、拖动读盘失败跳过保存。
+
 ### Task 5: e2e 验收改造与新增
 
 **Files:**
@@ -892,10 +894,18 @@ sys.stdout.flush(); __import__('os')._exit(0)
     check("T12a 最小化状态", app.minimized and not app.badge.winfo_ismapped())
     check("T12b 托盘图标创建", app._tray is not None and app._tray._ok)
 
-    # T13 托盘恢复
-    app.restore_from_tray()
-    root.update()
-    check("T13 托盘恢复", (not app.minimized) and bool(app.badge.winfo_ismapped()))
+    # T13 托盘恢复——必须走真实桥接（PostMessage → 消息线程 → event_generate → 绑定），
+    # 并限时断言（<0.5s 映射），防止"恢复冻结 3 秒"（C1）回归。直接调 restore_from_tray()
+    # 无法发现该类回归（消息线程空闲时 join 立即返回）。
+    tray_hwnd = app._tray._hwnd
+    user32 = ctypes.windll.user32
+    user32.PostMessageW(tray_hwnd, 0x8001, 0, 0x0202)   # WM_APP_TRAY + WM_LBUTTONUP
+    t0 = time.time()
+    while not app.badge.winfo_ismapped() and time.time() - t0 < 2:
+        root.update()
+    check("T13 托盘恢复(真实桥接<0.5s)",
+          (not app.minimized) and bool(app.badge.winfo_ismapped()) and (time.time() - t0) < 0.5,
+          f"elapsed={time.time() - t0:.2f}s")
 
     # T7 退出（走 quit_app：含托盘清理）
     app.quit_app()
