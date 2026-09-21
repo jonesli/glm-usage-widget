@@ -8,7 +8,8 @@ from unittest.mock import patch
 import widget
 from widget import (
     COL_ALERT, COL_DIM, COL_OK, COL_WARN, DEFAULTS,
-    badge_parts, color_for, load_config, next_interval_sec, save_config,
+    badge_parts, color_for, load_config, next_interval_sec, resolve_auth,
+    save_config,
 )
 
 
@@ -131,6 +132,21 @@ class TestConfig(unittest.TestCase):
             cfg = load_config(path)
             self.assertEqual(cfg["badge_position"], DEFAULTS["badge_position"])
 
+    def test_auth_string_fields(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "config.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"token": "  abc  ", "base_url": 123}, f)
+            cfg = load_config(path)
+            self.assertEqual(cfg["token"], "abc")      # strip 后入库
+            self.assertEqual(cfg["base_url"], "")      # 非字符串回退默认空串
+
+    def test_auth_missing_fields_default_empty(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = load_config(os.path.join(d, "nope.json"))
+            self.assertEqual(cfg["token"], "")
+            self.assertEqual(cfg["base_url"], "")
+
 
 class TestErrorStates(unittest.TestCase):
     def test_badge_shows_warning_after_generic_error(self):
@@ -187,6 +203,47 @@ class TestLog(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             with patch.object(widget, "LOG_PATH", d):   # 目录无法作为文件打开
                 widget.log("no crash")
+
+
+class TestResolveAuth(unittest.TestCase):
+    def test_migrates_from_env_and_persists(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "config.json")
+            env = {"ANTHROPIC_AUTH_TOKEN": "  tok-1  ",
+                   "ANTHROPIC_BASE_URL": "https://x.example/api/anthropic"}
+            with patch.dict(os.environ, env):
+                cfg = resolve_auth(load_config(path), path)
+            self.assertEqual(cfg["token"], "tok-1")
+            self.assertEqual(cfg["base_url"], "https://x.example")   # 规范化为协议+域名
+            saved = json.load(open(path, encoding="utf-8"))
+            self.assertEqual(saved["token"], "tok-1")
+            self.assertEqual(saved["base_url"], "https://x.example")
+
+    def test_existing_config_not_overridden(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "config.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"token": "cfg-token"}, f)
+            with patch.dict(os.environ, {"ANTHROPIC_AUTH_TOKEN": "env-token"}):
+                cfg = resolve_auth(load_config(path), path)
+            self.assertEqual(cfg["token"], "cfg-token")
+
+    def test_empty_env_leaves_file_unwritten(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "config.json")
+            env = {k: v for k, v in os.environ.items()
+                   if k not in ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL")}
+            with patch.dict(os.environ, env, clear=True):
+                cfg = resolve_auth(load_config(path), path)
+            self.assertEqual(cfg["token"], "")
+            self.assertFalse(os.path.exists(path))
+
+    def test_base_url_stripped(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "config.json")
+            with patch.dict(os.environ, {"ANTHROPIC_BASE_URL": "  https://x.example "}):
+                cfg = resolve_auth(load_config(path), path)
+            self.assertEqual(cfg["base_url"], "https://x.example")
 
 
 if __name__ == "__main__":

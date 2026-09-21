@@ -7,7 +7,7 @@ import threading
 from datetime import datetime
 import tkinter as tk
 
-from usage_api import fetch_all, format_tokens
+from usage_api import fetch_all, format_tokens, get_base_url
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(APP_DIR, "config.json")
@@ -18,6 +18,8 @@ DEFAULTS = {
     "alert_threshold": 80,
     "warn_threshold": 50,
     "badge_position": [80, 80],
+    "token": "",
+    "base_url": "",
 }
 
 BACKOFF_SEC = 300
@@ -91,6 +93,11 @@ def load_config(path=CONFIG_PATH):
                     and all(isinstance(v, (int, float)) and not isinstance(v, bool)
                             and math.isfinite(v) for v in val)):
                 cfg[key] = [int(val[0]), int(val[1])]
+        elif key in ("token", "base_url"):
+            if isinstance(val, str):
+                val = val.strip()
+                if val:
+                    cfg[key] = val
         elif isinstance(val, (int, float)) and not isinstance(val, bool) and val > 0:
             if key != "refresh_interval_sec":
                 cfg[key] = val
@@ -100,6 +107,28 @@ def load_config(path=CONFIG_PATH):
     if cfg["alert_threshold"] <= cfg["warn_threshold"]:
         cfg["alert_threshold"] = DEFAULTS["alert_threshold"]
         cfg["warn_threshold"] = DEFAULTS["warn_threshold"]
+    return cfg
+
+
+def resolve_auth(cfg, path=CONFIG_PATH):
+    """token/base_url 为空时从环境变量迁移写入 config（值不打印）。
+
+    base_url 经 get_base_url 规范化为协议+域名（env 原值带 /api 路径，
+    直接传给 fetch_all 会拼错端点）。config 已填的值优先，env 永不覆盖。
+    """
+    changed = False
+    if not cfg.get("token"):
+        val = (os.environ.get("ANTHROPIC_AUTH_TOKEN") or "").strip()
+        if val:
+            cfg["token"] = val
+            changed = True
+    if not cfg.get("base_url"):
+        root = get_base_url()
+        if root:
+            cfg["base_url"] = root
+            changed = True
+    if changed:
+        save_config(cfg, path)
     return cfg
 
 
