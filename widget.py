@@ -39,6 +39,20 @@ DEFAULTS = {
 }
 
 BACKOFF_SEC = 300
+DEFAULT_BASE_URL = "https://open.bigmodel.cn"
+
+
+def _normalize_base_url(url):
+    """base_url 规范化为协议+域名；无协议自动补 https；非法返回空串。"""
+    url = (url or "").strip()
+    if not url:
+        return ""
+    if "://" not in url:
+        url = "https://" + url
+    parts = urllib.parse.urlsplit(url)
+    if not (parts.scheme and parts.netloc):
+        return ""
+    return f"{parts.scheme}://{parts.netloc}"
 
 BG = "#1e1e2e"        # 深色底
 FG = "#cdd6f4"        # 主文字
@@ -168,9 +182,10 @@ def resolve_auth(cfg, path=CONFIG_PATH):
             cfg["base_url"] = root
             changed = True
     elif "/" in cfg["base_url"].split("://", 1)[-1]:
-        parts = urllib.parse.urlsplit(cfg["base_url"])
-        cfg["base_url"] = f"{parts.scheme}://{parts.netloc}"
-        changed = True
+        normalized = _normalize_base_url(cfg["base_url"])
+        if normalized:
+            cfg["base_url"] = normalized
+            changed = True
     if changed:
         save_config(cfg, path)
     return cfg
@@ -377,6 +392,67 @@ class UsageApp:
                 pass
         self.root.destroy()
 
+    # ---------- 配置对话框（未配置/更换凭据时使用） ----------
+    def open_config_dialog(self):
+        """弹出配置窗口；已打开时仅置前。url 预填默认值。"""
+        if getattr(self, "cfg_dialog", None) and self.cfg_dialog.winfo_exists():
+            self.cfg_dialog.lift()
+            self.cfg_dialog.focus_force()
+            return
+        dlg = tk.Toplevel(self.root)
+        dlg.title("GLM 用量悬浮窗 - 配置")
+        dlg.configure(bg=BG)
+        dlg.attributes("-topmost", True)
+        dlg.resizable(False, False)
+        tk.Label(dlg, text="token", font=FONT, bg=BG, fg=FG)\
+            .grid(row=0, column=0, sticky="w", padx=10, pady=(10, 2))
+        dlg.token_var = tk.StringVar(value=self.cfg.get("token", ""))
+        tk.Entry(dlg, textvariable=dlg.token_var, show="*", width=36)\
+            .grid(row=1, column=0, padx=10, sticky="we")
+        tk.Label(dlg, text="接口地址（只填协议+域名，会自动规范化）", font=FONT,
+                 bg=BG, fg=FG).grid(row=2, column=0, sticky="w", padx=10, pady=(8, 2))
+        dlg.url_var = tk.StringVar(
+            value=self.cfg.get("base_url") or DEFAULT_BASE_URL)
+        tk.Entry(dlg, textvariable=dlg.url_var, width=36)\
+            .grid(row=3, column=0, padx=10, sticky="we")
+        dlg.err_label = tk.Label(dlg, text="", font=RESET_FONT, bg=BG, fg=COL_ALERT)
+        dlg.err_label.grid(row=4, column=0, sticky="w", padx=10)
+        btns = tk.Frame(dlg, bg=BG)
+        btns.grid(row=5, column=0, pady=10)
+        tk.Button(btns, text="保存", width=8, font=FONT,
+                  command=lambda: self._save_credentials_dialog(dlg))\
+            .pack(side="left", padx=6)
+        tk.Button(btns, text="取消", width=8, font=FONT,
+                  command=dlg.destroy).pack(side="left", padx=6)
+        dlg.grid_columnconfigure(0, weight=1)
+        dlg.save = lambda: self._save_credentials_dialog(dlg)
+        self.cfg_dialog = dlg
+
+    def _save_credentials_dialog(self, dlg):
+        token = dlg.token_var.get().strip()
+        url = _normalize_base_url(dlg.url_var.get().strip() or DEFAULT_BASE_URL)
+        if not token:
+            dlg.err_label.configure(text="token 不能为空")
+            return
+        if not url:
+            dlg.err_label.configure(text="接口地址无效")
+            return
+        if self._apply_credentials(token, url):
+            dlg.destroy()
+
+    def _apply_credentials(self, token, base_url):
+        """校验并写入凭据（规范化 url、保留其他配置），成功后立即刷新。"""
+        token = (token or "").strip()
+        if not token:
+            return False
+        self.cfg["token"] = token
+        url = _normalize_base_url(base_url)    # 规范化集中在此（对话框/测试共用咽喉点）
+        if url:
+            self.cfg["base_url"] = url
+        save_config(self.cfg, CONFIG_PATH)     # 显式传调用时值（可测试、防默认参数陷阱）
+        self.refresh()
+        return True
+
     def _build_panel(self):
         self.panel = tk.Toplevel(self.root)
         self.panel.overrideredirect(True)
@@ -390,6 +466,7 @@ class UsageApp:
 
         g = tk.Frame(self.panel, bg=BG)
         g.pack(fill="both", expand=True, padx=10, pady=8)
+        self._panel_grid = g
 
         self.p_title = tk.Label(g, text="GLM Coding Plan", font=FONT, bg=BG, fg=FG)
         self.p_title.grid(row=0, column=0, columnspan=3, sticky="w")
@@ -445,6 +522,12 @@ class UsageApp:
                                     fg=COL_DIM)
         self.p_spark_end.grid(row=14, column=2, sticky="e")
 
+        # 未配置时的入口按钮：仅 NO_TOKEN/NO_BASE_URL 状态显示
+        self.p_cfg_btn = tk.Button(g, text="填写 token / 接口地址",
+                                   font=FONT, command=self.open_config_dialog)
+        self.p_cfg_btn.grid(row=15, column=0, columnspan=3, pady=(8, 0))
+        self.p_cfg_btn.grid_remove()
+
     def _draw_spark(self):
         c = self.spark
         c.delete("all")
@@ -474,9 +557,11 @@ class UsageApp:
         warn, alert = self.cfg["warn_threshold"], self.cfg["alert_threshold"]
         if latest.get("error") in ("NO_TOKEN", "NO_BASE_URL"):
             self.p_title.configure(text="未配置 Token")
-            self.p_today.configure(text="请在 config.json 中设置 token 与 base_url\n"
-                                        "（token 不会提交到 git）后重新启动本程序")
+            self.p_today.configure(text="点击下方按钮填写 token 与接口地址\n"
+                                        "（保存在本目录 config.json，不会提交 git）")
+            self.p_cfg_btn.grid()
             return
+        self.p_cfg_btn.grid_remove()
         d = self.data or {}
         if latest.get("error"):
             self.p_title.configure(text=f"GLM Coding Plan   更新失败 {self.last_ok}，重试中")

@@ -262,6 +262,93 @@ class TestAppDir(unittest.TestCase):
         self.assertEqual(os.path.basename(widget._app_dir()), "glm-usage-widget")
 
 
+class TestConfigDialog(unittest.TestCase):
+    def _make_app(self):
+        root = tk.Tk()
+        root.withdraw()
+        with patch.object(widget, "fetch_all", lambda *a, **k: {"error": "off"}), \
+                patch.object(widget, "resolve_auth", lambda cfg, path=None: cfg):
+            app = widget.UsageApp(root)
+        root.update()
+        return root, app
+
+    def test_normalize_base_url(self):
+        self.assertEqual(widget._normalize_base_url("https://x.cn/api/anthropic"),
+                         "https://x.cn")
+        self.assertEqual(widget._normalize_base_url("open.bigmodel.cn"),
+                         "https://open.bigmodel.cn")          # 无协议自动补 https
+        self.assertEqual(widget._normalize_base_url(""), "")
+
+    def test_apply_credentials_updates_cfg_and_disk(self):
+        root, app = self._make_app()
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                path = os.path.join(d, "config.json")
+                with patch.object(widget, "CONFIG_PATH", path), \
+                        patch.object(app, "refresh") as fake_refresh:
+                    ok = app._apply_credentials("  tok-9  ", "https://x.cn/api")
+                    fake_refresh.assert_called_once()      # 保存后立即刷新
+                saved = json.load(open(path, encoding="utf-8"))
+            self.assertTrue(ok)
+            self.assertEqual(app.cfg["token"], "tok-9")
+            self.assertEqual(app.cfg["base_url"], "https://x.cn")
+            self.assertEqual(saved["token"], "tok-9")
+            self.assertEqual(saved["base_url"], "https://x.cn")
+        finally:
+            root.destroy()
+
+    def test_apply_credentials_rejects_empty_token(self):
+        root, app = self._make_app()
+        try:
+            self.assertFalse(app._apply_credentials("  ", "https://x.cn"))
+        finally:
+            root.destroy()
+
+    def test_dialog_prefills_default_url_and_saves(self):
+        root, app = self._make_app()
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                path = os.path.join(d, "config.json")       # 隔离：保存不落真实 config
+                with patch.object(widget, "CONFIG_PATH", path):
+                    app.open_config_dialog()
+                    dlg = app.cfg_dialog
+                    self.assertTrue(dlg.winfo_exists())
+                    # url 输入框预填默认值
+                    self.assertEqual(dlg.url_var.get(), widget.DEFAULT_BASE_URL)
+                    dlg.token_var.set("dlg-tok")
+                    with patch.object(app, "refresh") as fake_refresh:
+                        dlg.save()
+                        fake_refresh.assert_called_once()
+                    self.assertEqual(app.cfg["token"], "dlg-tok")
+                    self.assertFalse(dlg.winfo_exists())         # 保存后窗口关闭
+                    # 未填 token 保存：报错不关闭
+                    app.open_config_dialog()
+                    dlg2 = app.cfg_dialog
+                    dlg2.token_var.set("")                  # 清空预填，模拟空输入
+                    with patch.object(app, "refresh") as fake_refresh:
+                        dlg2.save()
+                        fake_refresh.assert_not_called()
+                    self.assertIn("不能为空", dlg2.err_label.cget("text"))
+                    self.assertTrue(dlg2.winfo_exists())
+        finally:
+            root.destroy()
+
+    def test_no_token_panel_shows_config_button(self):
+        root, app = self._make_app()
+        try:
+            app.show_panel()                 # 面板展开后 _apply_data 才会重渲染
+            root.update()
+            app._apply_data({"error": "NO_TOKEN"})
+            root.update()
+            self.assertTrue(app.p_cfg_btn.winfo_ismapped())
+            app._apply_data({"token_windows": [{"label": "5小时", "percentage": 3.0}],
+                             "mcp": {"percentage": 0.0}})
+            root.update()
+            self.assertFalse(app.p_cfg_btn.winfo_ismapped())   # 恢复后按钮隐藏
+        finally:
+            root.destroy()
+
+
 class TestLog(unittest.TestCase):
     def test_log_writes_timestamped_line(self):
         with tempfile.TemporaryDirectory() as d:
