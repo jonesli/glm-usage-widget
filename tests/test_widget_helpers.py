@@ -421,10 +421,16 @@ class TestTrayStates(unittest.TestCase):
         root, app = self._make_app()
         try:
             with tempfile.TemporaryDirectory() as d:
-                missing = os.path.join(d, "nope", "config.json")   # 父目录不存在 → OSError
-                with patch.object(widget, "CONFIG_PATH", missing):
+                path = os.path.join(d, "config.json")
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write("{corrupted")          # 可写但损坏：旧代码会用默认值基底覆盖它
+                with open(path, "rb") as f:
+                    before = f.read()
+                with patch.object(widget, "CONFIG_PATH", path):
                     app._drag_end(SimpleNamespace(x=0, y=0))
-                self.assertFalse(os.path.exists(missing))          # 读失败 → 不写盘
+                with open(path, "rb") as f:
+                    after = f.read()
+            self.assertEqual(before, after)        # 读失败 → 文件原样（真实凭据不被覆盖）
         finally:
             root.destroy()
 
