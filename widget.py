@@ -4,6 +4,7 @@ import json
 import math
 import os
 import threading
+import urllib.parse
 from datetime import datetime
 import tkinter as tk
 
@@ -114,8 +115,9 @@ def load_config(path=CONFIG_PATH):
 def resolve_auth(cfg, path=CONFIG_PATH):
     """token/base_url 为空时从环境变量迁移写入 config（值不打印）。
 
-    base_url 经 get_base_url 规范化为协议+域名（env 原值带 /api 路径，
-    直接传给 fetch_all 会拼错端点）。config 已填的值优先，env 永不覆盖。
+    base_url 统一规范化为协议+域名：env 原值与手填值都可能带路径
+    （如 /api、/api/anthropic），不剥离会与接口路径拼重复导致 404。
+    config 已填的值优先（仅做规范化），env 永不覆盖。
     """
     changed = False
     if not cfg.get("token"):
@@ -128,6 +130,10 @@ def resolve_auth(cfg, path=CONFIG_PATH):
         if root:
             cfg["base_url"] = root
             changed = True
+    elif "/" in cfg["base_url"].split("://", 1)[-1]:
+        parts = urllib.parse.urlsplit(cfg["base_url"])
+        cfg["base_url"] = f"{parts.scheme}://{parts.netloc}"
+        changed = True
     if changed:
         save_config(cfg, path)
     return cfg

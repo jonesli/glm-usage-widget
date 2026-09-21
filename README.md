@@ -44,7 +44,16 @@ pythonw widget.py
 | warn_threshold | 50 | >=此百分比变黄 |
 | badge_position | [80,80] | 徽章位置（拖动自动更新） |
 | token | （空） | 接口认证 token，自动从环境变量迁移；不会提交到 git |
-| base_url | （空） | 接口域名（协议+域名即可），同样自动迁移 |
+| base_url | （空） | 接口域名，**只填协议+域名**（见下方说明），同样自动迁移 |
+
+**base_url 填写规则**（程序只在此域名后拼接 `/api/monitor/usage/...`，路径会自动剥离）：
+
+| 填写值 | 结果 |
+|--------|------|
+| `https://open.bigmodel.cn` | ✅ 正确（智谱国内版） |
+| `https://api.z.ai` | ✅ 正确（智谱国际版） |
+| `https://open.bigmodel.cn/api` | ❌ 错误——启动时会自动剥离成纯域名并写回 |
+| 留空 `""` | ✅ 从环境变量 `ANTHROPIC_BASE_URL` 迁移（同样自动规范化） |
 
 配置为异常时按字段回退默认值。注意：**warn 与 alert 是成对校验的**——
 若 alert <= warn，两个字段会整体回退默认值，不会出现"只改一个"的中间态。

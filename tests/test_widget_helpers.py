@@ -292,6 +292,27 @@ class TestResolveAuth(unittest.TestCase):
                 cfg = resolve_auth(load_config(path), path)
             self.assertEqual(cfg["base_url"], "https://x.example")
 
+    def test_hand_edited_base_url_path_stripped(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "config.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"base_url": "https://open.bigmodel.cn/api"}, f)
+            with patch.dict(os.environ, hermetic_env(), clear=True):
+                cfg = resolve_auth(load_config(path), path)
+            self.assertEqual(cfg["base_url"], "https://open.bigmodel.cn")
+            with open(path, encoding="utf-8") as f:
+                saved = json.load(f)
+            self.assertEqual(saved["base_url"], "https://open.bigmodel.cn")   # 规范化写回
+
+    def test_plain_domain_base_url_untouched(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "config.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"base_url": "https://open.bigmodel.cn"}, f)
+            with patch.dict(os.environ, hermetic_env(), clear=True):
+                cfg = resolve_auth(load_config(path), path)
+            self.assertEqual(cfg["base_url"], "https://open.bigmodel.cn")
+
 
 class TestTrayStates(unittest.TestCase):
     def _make_app(self):
