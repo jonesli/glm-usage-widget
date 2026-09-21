@@ -1,13 +1,15 @@
 """端到端验收脚本：把手动验收清单自动化。
 
 运行：python tests/e2e_acceptance.py
-- 主流程：真实 Tk 窗口逐项验证置顶/悬停/收回/翻转/拖动/位置记忆/真实数据/右键退出
+- 主流程：真实 Tk 窗口逐项验证置顶/悬停/收回/翻转/拖动/位置记忆/真实数据/右键菜单/托盘三态/退出
+- 子进程：认证迁移（暂存真实 config → 假 env 触发 token 写入与 ⚠ → 恢复 config）
 - 子进程：断网模拟（BASE_URL 指向不可达端口，走真实 socket 失败路径）
 - 子进程：内存占用测量（独立运行 widget.py，tasklist 查询）
 
-注意：运行时屏幕上会闪现徽章/面板数秒，属正常现象。
+注意：运行时屏幕上会闪现徽章/面板/托盘图标数秒，属正常现象。
 """
 
+import ctypes
 import json
 import os
 import subprocess
@@ -116,44 +118,117 @@ def run_e2e():
         check("T2b 面板今日Token", today_txt == expect_today, f"got={today_txt}")
         app.hide_panel()
 
-    # T7 右键退出（update 同步处理销毁；随后立即 os._exit，见 main）
-    app.badge.event_generate("<Button-3>")
+    # T11 右键菜单。Windows 的 tk_popup 走原生 TrackPopupMenu 模态循环（阻塞在
+    # post 内，winfo_ismapped 观察不到原生菜单）：after 回调能在该循环内执行即证明
+    # 菜单真实弹出，随后 EndMenu() 退出循环。绑定被替换为探针但内部仍走真实 handler。
+    menu_state = {"binding": False, "in_modal": False, "returned": False}
+    orig_popup = app.popup_badge_menu
+
+    def popup_probe(e=None):
+        menu_state["binding"] = True
+        orig_popup(e)
+        menu_state["returned"] = True
+
+    def in_modal_probe():
+        menu_state["in_modal"] = True
+        ctypes.windll.user32.EndMenu()
+
+    app.badge.bind("<Button-3>", popup_probe)
+    root.after(300, in_modal_probe)
+    app.badge.event_generate("<Button-3>", x=5, y=5)   # 同步进入原生菜单模态循环
     root.update()
+    check("T11a 菜单弹出", all(menu_state.values()), str(menu_state))
+    labels = [app.badge_menu.entrycget(i, "label")
+              for i in range(app.badge_menu.index("end") + 1)]
+    check("T11b 菜单项", labels == ["最小化到系统任务栏", "退出"], str(labels))
+
+    # T12 最小化到托盘（真实 Shell_NotifyIcon，通知区域会短暂出现图标）
+    app.minimize_to_tray()
+    root.update()
+    check("T12a 最小化状态", app.minimized and not app.badge.winfo_ismapped())
+    check("T12b 托盘图标创建", app._tray is not None and app._tray._ok)
+
+    # T13 托盘恢复——必须走真实桥接（PostMessage → 消息线程 → event_generate → 绑定）。
+    # 跨线程 event_generate 要求主线程在 mainloop 内（update 轮询会得到
+    # "main thread is not in main loop"），故在 mainloop 里限时轮询；
+    # <0.5s 映射断言防止“恢复冻结 3 秒”（C1）回归——直接调 restore_from_tray()
+    # 无法发现该类回归（消息线程空闲时 join 立即返回）。
+    tray_hwnd = app._tray._hwnd
+    user32 = ctypes.windll.user32
+    t0 = time.time()
+
+    def poll_restore():
+        if app.badge.winfo_ismapped() or time.time() - t0 > 2:
+            root.quit()
+        else:
+            root.after(25, poll_restore)
+
+    root.after(25, poll_restore)
+    user32.PostMessageW(tray_hwnd, 0x8001, 0, 0x0202)   # WM_APP_TRAY + WM_LBUTTONUP
+    root.mainloop()
+    elapsed = time.time() - t0
+    check("T13 托盘恢复(真实桥接<0.5s)",
+          (not app.minimized) and bool(app.badge.winfo_ismapped()) and elapsed < 0.5,
+          f"elapsed={elapsed:.2f}s")
+
+    # T7 退出（走 quit_app：含托盘清理）。mainloop 之后 update() 不再抛销毁异常，
+    # 用 winfo_exists 探测（老 T7 同款手法）
+    app.quit_app()
     try:
         gone = not app.badge.winfo_exists()
     except tk.TclError:
-        gone = True          # "application has been destroyed" = 右键销毁成功
-    check("T7 右键退出", gone)
+        gone = True          # "application has been destroyed" = 销毁成功
+    check("T7 退出(quit_app)", gone)
 
 
 def run_offline():
-    """子进程模式：BASE_URL 指向不可达端口，走真实 socket 失败 → 徽章应显示 ⚠。"""
-    root = tk.Tk()
-    root.withdraw()
-    app = widget.UsageApp(root)
-    deadline = time.time() + 12          # socket 失败可能要等满 10s 超时
-    state = {"done": False}
+    """子进程模式：BASE_URL 指向不可达端口，走真实 socket 失败 → 徽章应显示 ⚠。
 
-    def poll():
-        txt = app.lb_5h.cget("text")
-        if txt.startswith("…") and time.time() < deadline:
-            root.after(250, poll)
-            return
-        state["done"] = True
-        ok = txt.startswith("⚠")
-        diag = (f"badge={txt} failures={app.failures} "
-                f"latest={'error' in (app.latest or {}) and app.latest['error'][:60]}")
-        print(("PASS " if ok else "FAIL ") + f"T8 断网模拟 | {diag}", flush=True)
-        if not ok:
+    凭据优先取 config（env 永不覆盖），真实 config 已带凭据时 env 失效、
+    会真连生产接口——故先暂存移走 config 模拟未配置环境，finally 恢复；
+    token 缺失时给占位值（端口不可达，凭据从不真正外发）。
+    """
+    cfg_path = widget.CONFIG_PATH
+    backup = None
+    if os.path.exists(cfg_path):
+        backup = open(cfg_path, "rb").read()
+    try:
+        if backup is not None:
+            os.remove(cfg_path)
+        os.environ["ANTHROPIC_AUTH_TOKEN"] = \
+            os.environ.get("ANTHROPIC_AUTH_TOKEN") or "e2e-offline-token"
+        os.environ["ANTHROPIC_BASE_URL"] = "http://127.0.0.1:9"
+        root = tk.Tk()
+        root.withdraw()
+        app = widget.UsageApp(root)
+        deadline = time.time() + 12          # socket 失败可能要等满 10s 超时
+        state = {"done": False}
+
+        def poll():
+            txt = app.lb_5h.cget("text")
+            if txt.startswith("…") and time.time() < deadline:
+                root.after(250, poll)
+                return
+            state["done"] = True
+            ok = txt.startswith("⚠")
+            diag = (f"badge={txt} failures={app.failures} "
+                    f"latest={'error' in (app.latest or {}) and app.latest['error'][:60]}")
+            print(("PASS " if ok else "FAIL ") + f"T8 断网模拟 | {diag}", flush=True)
+            if not ok:
+                FAILS.append("T8 断网模拟")
+            root.destroy()
+
+        app.refresh()
+        root.after(250, poll)
+        root.mainloop()
+        if not state["done"]:                # mainloop 提前结束（异常路径）
+            print("FAIL T8 断网模拟 | mainloop 提前退出", flush=True)
             FAILS.append("T8 断网模拟")
-        root.destroy()
-
-    app.refresh()
-    root.after(250, poll)
-    root.mainloop()
-    if not state["done"]:                # mainloop 提前结束（异常路径）
-        print("FAIL T8 断网模拟 | mainloop 提前退出", flush=True)
-        FAILS.append("T8 断网模拟")
+    finally:
+        if backup is not None:
+            open(cfg_path, "wb").write(backup)
+        elif os.path.exists(cfg_path):
+            os.remove(cfg_path)
 
 
 def run_memory():
@@ -175,7 +250,64 @@ def run_memory():
         FAILS.append("T10 内存占用")
 
 
+def run_auth():
+    """子进程：备份真实 config → 假 env 触发迁移 → 断言写入与 ⚠ → 恢复备份。"""
+    cfg_path = widget.CONFIG_PATH
+    backup = None
+    if os.path.exists(cfg_path):
+        backup = open(cfg_path, "rb").read()
+    try:
+        # 迁移仅在 config 缺凭据时发生：先移走真实 config 模拟全新环境（finally 恢复）
+        if backup is not None:
+            os.remove(cfg_path)
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL")}
+        env["ANTHROPIC_AUTH_TOKEN"] = "e2e-fake-token"
+        env["ANTHROPIC_BASE_URL"] = "http://127.0.0.1:9"
+        env["PYTHONIOENCODING"] = "utf-8"
+        code = f"""
+import sys, tkinter as tk
+sys.path.insert(0, r'{APP_DIR}')
+import widget
+root = tk.Tk(); root.withdraw()
+app = widget.UsageApp(root)
+deadline = __import__('time').time() + 12
+def poll():
+    txt = app.lb_5h.cget('text')
+    if txt.startswith('…') and __import__('time').time() < deadline:
+        root.after(250, poll); return
+    try:
+        written = 'e2e-fake-token' in open(widget.CONFIG_PATH, encoding='utf-8').read()
+    except OSError:
+        written = False
+    ok = written and txt.startswith('⚠')
+    print(('PASS ' if ok else 'FAIL ') + f'T14 认证迁移 | badge={{txt}} written={{written}}', flush=True)
+    root.destroy()
+app.refresh()
+root.after(250, poll)
+root.mainloop()
+"""
+        result = subprocess.run([sys.executable, "-c", code], env=env, cwd=APP_DIR,
+                                timeout=40, capture_output=True, text=True,
+                                encoding="utf-8", errors="replace")
+        sys.stdout.write(result.stdout or "")
+        sys.stderr.write(result.stderr or "")
+        sys.stdout.flush()
+        for line in (result.stdout or "").splitlines():   # FAIL 行回填，让退出码有意义
+            if line.startswith("FAIL"):
+                FAILS.append(line.split("|")[0].strip()[len("FAIL "):])
+    finally:
+        if backup is not None:
+            open(cfg_path, "wb").write(backup)
+        elif os.path.exists(cfg_path):
+            os.remove(cfg_path)
+
+
 def main():
+    if "--auth" in sys.argv:
+        run_auth()
+        sys.stdout.flush()
+        os._exit(1 if FAILS else 0)
     if "--offline" in sys.argv:
         run_offline()
         sys.stdout.flush()
@@ -185,16 +317,19 @@ def main():
         sys.stdout.flush()
         os._exit(1 if FAILS else 0)
 
-    # 先跑两个独立子进程检查（结果不受主进程 Tk 拆卸影响）
+    # 先跑独立子进程检查（结果不受主进程 Tk 拆卸影响；auth 需暂存/恢复 config，
+    # 必须最先跑，避免其后的检查读到被移走的 config）
     env = dict(os.environ)
     env["ANTHROPIC_BASE_URL"] = "http://127.0.0.1:9"
     env["PYTHONIOENCODING"] = "utf-8"
+    subprocess.run([sys.executable, os.path.abspath(__file__), "--auth"], env=env,
+                   cwd=APP_DIR, timeout=40)
     subprocess.run([sys.executable, os.path.abspath(__file__), "--offline"], env=env,
                    cwd=APP_DIR, timeout=40)
     subprocess.run([sys.executable, os.path.abspath(__file__), "--memory"], env=env,
                    cwd=APP_DIR, timeout=60)
 
-    # 再跑进程内 E2E（右键销毁 root 是最后一步，之后立即 os._exit）
+    # 再跑进程内 E2E（quit_app 销毁 root 是最后一步，之后立即 os._exit）
     run_e2e()
     print()
     if FAILS:
