@@ -217,9 +217,8 @@ class TestResolveAuth(unittest.TestCase):
     def test_migrates_from_env_and_persists(self):
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "config.json")
-            with patch.dict(os.environ, hermetic_env(
-                    ANTHROPIC_AUTH_TOKEN="  tok-1  ",
-                    ANTHROPIC_BASE_URL="https://x.example/api/anthropic")):
+            with patch.dict(os.environ, hermetic_env(ANTHROPIC_AUTH_TOKEN="  tok-1  ",
+                                                     ANTHROPIC_BASE_URL="https://x.example/api/anthropic"), clear=True):
                 cfg = resolve_auth(load_config(path), path)
             self.assertEqual(cfg["token"], "tok-1")
             self.assertEqual(cfg["base_url"], "https://x.example")   # 规范化为协议+域名
@@ -233,7 +232,7 @@ class TestResolveAuth(unittest.TestCase):
             path = os.path.join(d, "config.json")
             with open(path, "w", encoding="utf-8") as f:
                 json.dump({"token": "cfg-token"}, f)
-            with patch.dict(os.environ, hermetic_env(ANTHROPIC_AUTH_TOKEN="env-token")):
+            with patch.dict(os.environ, hermetic_env(ANTHROPIC_AUTH_TOKEN="env-token"), clear=True):
                 cfg = resolve_auth(load_config(path), path)
             self.assertEqual(cfg["token"], "cfg-token")
 
@@ -248,7 +247,7 @@ class TestResolveAuth(unittest.TestCase):
     def test_base_url_stripped(self):
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "config.json")
-            with patch.dict(os.environ, hermetic_env(ANTHROPIC_BASE_URL="  https://x.example ")):
+            with patch.dict(os.environ, hermetic_env(ANTHROPIC_BASE_URL="  https://x.example "), clear=True):
                 cfg = resolve_auth(load_config(path), path)
             self.assertEqual(cfg["base_url"], "https://x.example")
 
