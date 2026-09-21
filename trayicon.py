@@ -6,6 +6,7 @@ Tk 侧应在回调里用 root.event_generate(...) 切回主线程。
 
 import ctypes
 import threading
+import traceback
 from ctypes import wintypes
 
 # --- Win32 常量 ---
@@ -105,11 +106,15 @@ class TrayIcon:
         self._ok = False
         self._hicon = None
         self._hwnd = None
+        self._icon_is_shared = False    # LoadIconW 回退的共享图标不可 DestroyIcon
         self._wndproc_ref = None        # 保住回调引用防 GC
         self._class_name = None
 
     def show(self):
         """创建托盘图标并启动消息线程；成功返回 True（最多等 5 秒）。"""
+        if self._thread and self._thread.is_alive():
+            return self._ok              # 已有线程在跑：不重复启动（防孤儿图标）
+        self._ok = False                 # 清掉上一轮残留，避免误报成功
         self._stop.clear()
         self._ready.clear()
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -124,13 +129,15 @@ class TrayIcon:
             ctypes.windll.user32.PostMessageW(self._hwnd, WM_CLOSE, 0, 0)
         if self._thread:
             self._thread.join(timeout=3)
-        self._thread = None
+            if not self._thread.is_alive():
+                self._thread = None      # 只有真正退出才清引用，防孤儿失联
 
     # ---- 以下均在消息线程内执行 ----
     def _run(self):
         try:
             self._run_inner()
         except Exception:
+            traceback.print_exc()        # pythonw 下不可见，控制台开发运行可见
             self._ok = False
             self._ready.set()
 
@@ -169,47 +176,53 @@ class TrayIcon:
             self._ok = False
             self._ready.set()
             return
-        self._hwnd = user32.CreateWindowExW(0, self._class_name, "glm-tray", 0,
-                                            0, 0, 0, 0, HWND_MESSAGE, None,
-                                            hinst, None)
-        if not self._hwnd:
-            self._ok = False
-            self._ready.set()
-            return
-
         nid = NOTIFYICONDATAW()
         nid.cbSize = ctypes.sizeof(nid)
-        nid.hWnd = self._hwnd
         nid.uID = 1
         nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP
         nid.uCallbackMessage = WM_APP_TRAY
         nid.hIcon = self._build_icon(user32)
-        nid.szTip = self.tip
+        nid.szTip = (self.tip or "")[:127]
         self._hicon = nid.hIcon
-        self._ok = bool(shell32.Shell_NotifyIconW(NIM_ADD, ctypes.byref(nid)))
-        self._ready.set()
-        if not self._ok:
-            return
+        added = False
+        try:
+            self._hwnd = user32.CreateWindowExW(0, self._class_name, "glm-tray", 0,
+                                                0, 0, 0, 0, HWND_MESSAGE, None,
+                                                hinst, None)
+            if not self._hwnd:
+                self._ok = False
+                return
+            nid.hWnd = self._hwnd
 
-        msg = wintypes.MSG()
-        while not self._stop.is_set():
-            r = user32.GetMessageW(ctypes.byref(msg), None, 0, 0)
-            if r <= 0:
-                break
-            user32.TranslateMessage(ctypes.byref(msg))
-            user32.DispatchMessageW(ctypes.byref(msg))
+            self._ok = bool(shell32.Shell_NotifyIconW(NIM_ADD, ctypes.byref(nid)))
+            if not self._ok:
+                return
+            added = True
+            self._ready.set()      # 成功路径立即放行 show()；失败路径由 finally 兜底
 
-        shell32.Shell_NotifyIconW(NIM_DELETE, ctypes.byref(nid))
-        user32.DestroyWindow(self._hwnd)
-        user32.UnregisterClassW(self._class_name, hinst)
-        if self._hicon:
-            user32.DestroyIcon(self._hicon)
-        self._hwnd = None
-        self._hicon = None
+            msg = wintypes.MSG()
+            while not self._stop.is_set():
+                r = user32.GetMessageW(ctypes.byref(msg), None, 0, 0)
+                if r <= 0:
+                    break
+                user32.TranslateMessage(ctypes.byref(msg))
+                user32.DispatchMessageW(ctypes.byref(msg))
+        finally:
+            # 成功/失败/异常统一回收注册的窗口类与图标，否则同实例重试会
+            # 1410 ERROR_CLASS_ALREADY_EXISTS 永久烧毁
+            if added:
+                shell32.Shell_NotifyIconW(NIM_DELETE, ctypes.byref(nid))
+            if self._hwnd:
+                user32.DestroyWindow(self._hwnd)
+                user32.UnregisterClassW(self._class_name, hinst)
+            if self._hicon and not self._icon_is_shared:
+                user32.DestroyIcon(self._hicon)
+            self._hwnd = None
+            self._hicon = None
+            self._ready.set()      # 所有退出路径统一放行 show() 的等待
 
-    @staticmethod
-    def _build_icon(user32):
-        """内存位图 → HICON；失败回退系统信息图标。"""
+    def _build_icon(self, user32):
+        """内存位图 → HICON；失败回退系统信息图标（共享，不可 DestroyIcon）。"""
         size = 16
         pixels = make_icon_pixels(size)
         gdi32 = ctypes.windll.gdi32
@@ -219,6 +232,7 @@ class TrayIcon:
         hbm_color = gdi32.CreateDIBSection(None, ctypes.byref(bmi), 0,
                                            ctypes.byref(ptr), None, 0)
         if not hbm_color or not ptr:
+            self._icon_is_shared = True
             return user32.LoadIconW(None, IDI_INFORMATION)
         ctypes.memmove(ptr, pixels, len(pixels))
         hbm_mask = gdi32.CreateBitmap(size, size, 1, 1, None)
@@ -226,4 +240,8 @@ class TrayIcon:
         hicon = user32.CreateIconIndirect(ctypes.byref(ii))
         gdi32.DeleteObject(hbm_mask)
         gdi32.DeleteObject(hbm_color)
-        return hicon or user32.LoadIconW(None, IDI_INFORMATION)
+        if hicon:
+            self._icon_is_shared = False
+            return hicon
+        self._icon_is_shared = True
+        return user32.LoadIconW(None, IDI_INFORMATION)

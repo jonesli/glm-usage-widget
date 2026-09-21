@@ -540,7 +540,7 @@ class TrayIcon:
 - [ ] **Step 4: 运行确认通过**
 
 Run: `python -m unittest -v`
-Expected: 67 tests, all PASS
+Expected: 69 tests, all PASS（66 + 2 纯函数 + 1 孤儿防护；质量审查加固后）
 
 - [ ] **Step 5: 真实托盘冒烟（创建→存活→移除，屏幕右下角会出现图标数秒）**
 
@@ -568,6 +568,8 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 ```
 
 ---
+
+> **审查修正（P2-Task3 实现发现计划代码 3 处 ctypes x64 编组 bug，已修复并经 spec 审查独立复现验证）：** ① `HWND_MESSAGE = ctypes.c_void_p(-3)`（裸 int 在 x64 被零扩展为 0xFFFFFFFD，CreateWindowExW 报 err 1400）；② `user32.DefWindowProcW` 需声明 argtypes/restype（否则 WM_CREATE 的 64 位 CREATESTRUCT 指针在回调内抛 ArgumentError 中止窗口创建）；③ `Shell_NotifyIconW` 从 `ctypes.windll.shell32` 调用（本机 user32 不导出，且异常会被 `_run` 的 except 吞成 show()=False）。**计划正文的 Task 3 代码以这三处修正为准，勿回退。**
 
 ### Task 4: UsageApp 三态——右键菜单 / 最小化 / 恢复 / quit_app
 
@@ -776,7 +778,7 @@ Expected: FAIL，`AttributeError: 'UsageApp' object has no attribute 'badge_menu
 - [ ] **Step 4: 运行确认通过**
 
 Run: `python -m unittest -v`
-Expected: 73 tests, all PASS（67 + 6 新增）
+Expected: 75 tests, all PASS（69 + 6 新增）
 
 - [ ] **Step 5: 快速冒烟（屏幕上会出现徽章；右键应弹菜单而非退出）**
 
@@ -987,7 +989,7 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 
 ```markdown
 ```bash
-python -m unittest -v                      # 73 项单元/组件测试
+python -m unittest -v                      # 75 项单元/组件测试
 python tests/e2e_acceptance.py             # 20 项端到端验收（屏幕会闪现窗口/托盘图标）
 ```
 ```
