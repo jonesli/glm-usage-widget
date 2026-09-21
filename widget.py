@@ -34,6 +34,7 @@ COL_OK = "#a6e3a1"    # 绿
 COL_WARN = "#f9e2af"  # 黄
 COL_ALERT = "#f38ba8" # 红
 FONT = ("Microsoft YaHei UI", 9)
+RESET_FONT = ("Microsoft YaHei UI", 8)   # 重置时间等次要小字
 
 
 def log(msg):
@@ -380,37 +381,44 @@ class UsageApp:
         self.p_title = tk.Label(g, text="GLM Coding Plan", font=FONT, bg=BG, fg=FG)
         self.p_title.grid(row=0, column=0, columnspan=3, sticky="w")
 
-        self.p_bars = []          # [(name_label, canvas, rect, pct_label), ...]
+        self.p_bars = []          # [(name_label, reset_label, canvas, rect, pct_label), ...]
         for i, name in enumerate(("窗口1", "窗口2")):
-            name_lab = tk.Label(g, text=name, font=FONT, bg=BG, fg=COL_DIM)
-            name_lab.grid(row=1 + i, column=0, sticky="w")
+            row = 1 + i * 2                       # 1/3 行：额度行；2/4 行：重置时间
+            name_lab = tk.Label(g, text=name, font=FONT, bg=BG, fg=FG)
+            name_lab.grid(row=row, column=0, sticky="w")
             c, rect = self._make_bar(g)
-            c.grid(row=1 + i, column=1, pady=2)
+            c.grid(row=row, column=1, pady=2)
             lab = tk.Label(g, text="0%", font=FONT, bg=BG, fg=FG, width=5)
-            lab.grid(row=1 + i, column=2, sticky="w")
-            self.p_bars.append((name_lab, c, rect, lab))
+            lab.grid(row=row, column=2, sticky="w")
+            reset_lab = tk.Label(g, text="", font=RESET_FONT, bg=BG, fg=COL_DIM,
+                                 anchor="w")
+            reset_lab.grid(row=row + 1, column=0, columnspan=3, sticky="w")
+            self.p_bars.append((name_lab, reset_lab, c, rect, lab))
 
         self.p_today = tk.Label(g, text="今日 Token  0", font=FONT, bg=BG, fg=FG,
                                 justify="left", anchor="w")
-        self.p_today.grid(row=3, column=0, columnspan=3, sticky="we", pady=(6, 0))
+        self.p_today.grid(row=5, column=0, columnspan=3, sticky="we", pady=(6, 0))
         self.p_models = [
             tk.Label(g, text="", font=FONT, bg=BG, fg=COL_DIM, anchor="w")
             for _ in range(4)
         ]
         for i, lab in enumerate(self.p_models):
-            lab.grid(row=4 + i, column=0, columnspan=3, sticky="we")
+            lab.grid(row=6 + i, column=0, columnspan=3, sticky="we")
 
-        self.p_mcp_txt = tk.Label(g, text="MCP月度额度\n已用 0/0", font=FONT, bg=BG, fg=FG,
-                                  justify="left", anchor="w")
-        self.p_mcp_txt.grid(row=8, column=0, sticky="w", pady=(6, 0))
+        self.p_mcp_txt = tk.Label(g, text="MCP月度额度", font=FONT, bg=BG, fg=FG,
+                                  anchor="w")
+        self.p_mcp_txt.grid(row=10, column=0, sticky="w")
         c, rect = self._make_bar(g)
-        c.grid(row=8, column=1, pady=2, sticky="w")
+        c.grid(row=10, column=1, pady=2)
         self.p_mcp_bar = (c, rect)
         self.p_mcp_pct = tk.Label(g, text="0%", font=FONT, bg=BG, fg=FG, width=5)
-        self.p_mcp_pct.grid(row=8, column=2, sticky="w", pady=(6, 0))
+        self.p_mcp_pct.grid(row=10, column=2, sticky="w")
+        self.p_mcp_reset = tk.Label(g, text="", font=RESET_FONT, bg=BG, fg=COL_DIM,
+                                    anchor="w")
+        self.p_mcp_reset.grid(row=11, column=0, columnspan=3, sticky="w")
 
         self.spark = tk.Canvas(g, width=228, height=40, bg=BG, highlightthickness=0)
-        self.spark.grid(row=9, column=0, columnspan=3, pady=(6, 0))
+        self.spark.grid(row=12, column=0, columnspan=3, pady=(6, 0))
 
     def _draw_spark(self):
         c = self.spark
@@ -443,13 +451,13 @@ class UsageApp:
         else:
             self.p_title.configure(text=f"GLM Coding Plan   更新 {self.last_ok}")
         wins = d.get("token_windows") or []
-        for i, (name_lab, canvas, rect, lab) in enumerate(self.p_bars):
+        for i, (name_lab, reset_lab, canvas, rect, lab) in enumerate(self.p_bars):
             win = wins[i] if i < len(wins) else {}
             pct = win.get("percentage", 0.0)
             self._update_bar(canvas, rect, pct, color_for(pct, warn, alert))
-            name = win.get("label", f"窗口{i + 1}")
+            name_lab.configure(text=win.get("label", f"窗口{i + 1}"))
             reset = humanize_reset(win.get("next_reset"))
-            name_lab.configure(text=f"{name}\n{reset}" if reset else name)
+            reset_lab.configure(text=f"  {reset}" if reset else "")
             lab.configure(text=f"{pct:.0f}%")
         today = d.get("today") or {}
         self.p_today.configure(
@@ -465,10 +473,10 @@ class UsageApp:
         self._update_bar(self.p_mcp_bar[0], self.p_mcp_bar[1],
                          mcp["percentage"], color_for(mcp["percentage"], warn, alert))
         mcp_reset = humanize_reset(mcp.get("next_reset"))
-        mcp_name = f"MCP月度额度\n已用 {mcp['used']}/{mcp['total']}"
+        mcp_line = f"  已用 {mcp['used']}/{mcp['total']}"
         if mcp_reset:
-            mcp_name += f" · {mcp_reset}"
-        self.p_mcp_txt.configure(text=mcp_name)
+            mcp_line += f" · {mcp_reset}"
+        self.p_mcp_reset.configure(text=mcp_line)
         self.p_mcp_pct.configure(text=f"{mcp['percentage']:.0f}%")
         self._draw_spark()
 
