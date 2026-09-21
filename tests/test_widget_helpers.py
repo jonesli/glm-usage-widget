@@ -3,6 +3,7 @@ import os
 import tempfile
 import tkinter as tk
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import widget
@@ -290,6 +291,107 @@ class TestResolveAuth(unittest.TestCase):
             with patch.dict(os.environ, hermetic_env(ANTHROPIC_BASE_URL="  https://x.example "), clear=True):
                 cfg = resolve_auth(load_config(path), path)
             self.assertEqual(cfg["base_url"], "https://x.example")
+
+
+class TestTrayStates(unittest.TestCase):
+    def _make_app(self):
+        root = tk.Tk()
+        root.withdraw()
+        with patch.object(widget, "fetch_all", lambda *a, **k: {"error": "off"}), \
+                patch.object(widget, "resolve_auth", lambda cfg, path=None: cfg):
+            app = widget.UsageApp(root)
+        root.update()
+        return root, app
+
+    def test_badge_menu_has_two_items(self):
+        root, app = self._make_app()
+        try:
+            labels = [app.badge_menu.entrycget(i, "label")
+                      for i in range(app.badge_menu.index("end") + 1)]
+            self.assertEqual(labels, ["最小化到系统任务栏", "退出"])
+        finally:
+            root.destroy()
+
+    def test_tray_menu_items(self):
+        root, app = self._make_app()
+        try:
+            labels = [app.tray_menu.entrycget(i, "label")
+                      for i in range(app.tray_menu.index("end") + 1)]
+            self.assertEqual(labels, ["恢复", "退出"])
+        finally:
+            root.destroy()
+
+    def test_minimize_hides_badge_and_creates_tray(self):
+        root, app = self._make_app()
+        try:
+            with patch.object(widget, "TrayIcon") as FakeTray:
+                FakeTray.return_value.show.return_value = True
+                app.minimize_to_tray()
+                root.update()
+            self.assertTrue(app.minimized)
+            self.assertFalse(bool(app.badge.winfo_ismapped()))
+            FakeTray.return_value.hide.assert_not_called()
+        finally:
+            root.destroy()
+
+    def test_restore_shows_badge_and_hides_tray(self):
+        root, app = self._make_app()
+        try:
+            with patch.object(widget, "TrayIcon") as FakeTray:
+                FakeTray.return_value.show.return_value = True
+                app.minimize_to_tray()
+                root.update()
+                app.restore_from_tray()
+                root.update()
+            self.assertFalse(app.minimized)
+            self.assertTrue(bool(app.badge.winfo_ismapped()))
+            FakeTray.return_value.hide.assert_called_once()
+        finally:
+            root.destroy()
+
+    def test_minimize_failure_keeps_badge_visible(self):
+        root, app = self._make_app()
+        try:
+            with patch.object(widget, "TrayIcon") as FakeTray:
+                FakeTray.return_value.show.return_value = False
+                app.minimize_to_tray()
+                root.update()
+            self.assertFalse(app.minimized)
+            self.assertTrue(bool(app.badge.winfo_ismapped()))
+            self.assertEqual(app.badge_menu.index("end"), 0)   # 只剩"退出"
+        finally:
+            root.destroy()
+
+    def test_quit_app_hides_tray_then_destroys(self):
+        root, app = self._make_app()
+        with patch.object(widget, "TrayIcon") as FakeTray:
+            FakeTray.return_value.show.return_value = True
+            app.minimize_to_tray()
+            root.update()
+            app.quit_app()
+            FakeTray.return_value.hide.assert_called_once()
+            with self.assertRaises(tk.TclError):
+                root.winfo_exists()    # root 已销毁（update() 在已毁 root 上不抛错）
+
+    def test_drag_end_preserves_disk_auth(self):
+        root, app = self._make_app()
+        try:
+            app.cfg["token"] = "memory-token"
+            app.cfg["badge_position"] = [123, 456]
+            app.badge.geometry("+123+456")   # 把窗口真移到断言位置，winfo 才报 123,456
+            root.update()
+            with tempfile.TemporaryDirectory() as d:
+                path = os.path.join(d, "config.json")
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump({"token": ""}, f)
+                with patch.object(widget, "CONFIG_PATH", path):
+                    app._drag_end(SimpleNamespace(x=0, y=0))
+                with open(path, encoding="utf-8") as f:
+                    saved = json.load(f)
+            self.assertEqual(saved["token"], "")                 # 未复活
+            self.assertEqual(saved["badge_position"], [123, 456])
+        finally:
+            root.destroy()
 
 
 if __name__ == "__main__":

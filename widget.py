@@ -7,6 +7,7 @@ import threading
 from datetime import datetime
 import tkinter as tk
 
+from trayicon import TrayIcon
 from usage_api import fetch_all, format_tokens, get_base_url
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -153,9 +154,14 @@ class UsageApp:
         self.hide_job = None
         self._dragging = False
         self._drag_dx = self._drag_dy = 0
+        self.minimized = False
+        self._tray = None
+        self._build_menus()
         self._build_badge()
         self._build_panel()
         self._apply_position()
+        self.root.bind("<<TrayRestore>>", lambda e: self.restore_from_tray())
+        self.root.bind("<<TrayMenu>>", lambda e: self.show_tray_menu())
         self.root.after(200, self.refresh)
 
     # ---------- 徽章 ----------
@@ -175,13 +181,13 @@ class UsageApp:
         self.lb_5h.pack(side="left")
         lb_sep.pack(side="left", padx=3)
         self.lb_mcp.pack(side="left")
-        # 交互：拖动 / 悬停展开 / 右键退出（无边框窗口的退出途径）
+        # 交互：拖动 / 悬停展开 / 右键弹菜单（最小化/退出）
         self.badge.bind("<Button-1>", self._drag_start)
         self.badge.bind("<B1-Motion>", self._drag_move)
         self.badge.bind("<ButtonRelease-1>", self._drag_end)
         self.badge.bind("<Enter>", lambda e: self.show_panel())
         self.badge.bind("<Leave>", self.schedule_hide)
-        self.badge.bind("<Button-3>", lambda e: self.root.destroy())
+        self.badge.bind("<Button-3>", self.popup_badge_menu)
 
     def _apply_position(self):
         x, y = self.cfg["badge_position"]
@@ -209,7 +215,14 @@ class UsageApp:
     def _drag_end(self, e):
         self._dragging = False
         self.cfg["badge_position"] = [self.badge.winfo_x(), self.badge.winfo_y()]
-        save_config(self.cfg)
+        # 以磁盘文件为基底保存：保留用户对 token/base_url 的手工改动（包括删除），
+        # 仅覆盖四个运行时已知会变化的键。CONFIG_PATH 显式传当前值（调用时求值，可测试）。
+        disk = load_config(CONFIG_PATH)
+        merged = dict(disk)
+        for key in ("refresh_interval_sec", "alert_threshold",
+                    "warn_threshold", "badge_position"):
+            merged[key] = self.cfg[key]
+        save_config(merged, CONFIG_PATH)
 
     def _drag_move(self, e):
         x = self.badge.winfo_x() - self._drag_dx + e.x
@@ -242,6 +255,68 @@ class UsageApp:
         canvas.coords(rect, 1, 1, w, 7)
         canvas.itemconfigure(rect, fill=color)
 
+    # ---------- 右键菜单与托盘三态 ----------
+    def _build_menus(self):
+        self.badge_menu = tk.Menu(self.root, tearoff=0)
+        self.badge_menu.add_command(label="最小化到系统任务栏",
+                                    command=self.minimize_to_tray)
+        self.badge_menu.add_command(label="退出", command=self.quit_app)
+        self.tray_menu = tk.Menu(self.root, tearoff=0)
+        self.tray_menu.add_command(label="恢复", command=self.restore_from_tray)
+        self.tray_menu.add_command(label="退出", command=self.quit_app)
+
+    def popup_badge_menu(self, e=None):
+        try:
+            self.badge_menu.tk_popup(e.x_root, e.y_root)
+        finally:
+            self.badge_menu.grab_release()
+
+    def show_tray_menu(self):
+        """托盘右键：在屏幕右下角（托盘附近）弹菜单。"""
+        sw = self.root.winfo_screenwidth()
+        sh = self.root.winfo_screenheight()
+        try:
+            self.tray_menu.tk_popup(sw - 160, sh - 140)
+        finally:
+            self.tray_menu.grab_release()
+
+    def minimize_to_tray(self):
+        if self.minimized:
+            return
+        if self._tray is None:
+            self._tray = TrayIcon(
+                tip="GLM 用量悬浮窗",
+                on_restore=lambda: self.root.event_generate("<<TrayRestore>>"),
+                on_menu=lambda: self.root.event_generate("<<TrayMenu>>"),
+            )
+        if not self._tray.show():
+            log("托盘图标创建失败，右键菜单已移除最小化项")
+            self._tray = None
+            try:
+                self.badge_menu.delete(0)      # 移除"最小化"，只剩"退出"
+            except tk.TclError:
+                pass
+            return
+        self.minimized = True
+        self.hide_panel()
+        self.badge.withdraw()
+
+    def restore_from_tray(self):
+        if not self.minimized:
+            return
+        self.minimized = False
+        if self._tray:
+            self._tray.hide()
+        self.badge.deiconify()
+
+    def quit_app(self):
+        try:
+            if self._tray:
+                self._tray.hide()
+        except Exception as exc:
+            log(f"托盘清理异常: {exc!r}")
+        self.root.destroy()
+
     def _build_panel(self):
         self.panel = tk.Toplevel(self.root)
         self.panel.overrideredirect(True)
@@ -251,7 +326,7 @@ class UsageApp:
         self.panel.withdraw()
         self.panel.bind("<Enter>", lambda e: self._cancel_hide())
         self.panel.bind("<Leave>", self.schedule_hide)
-        self.panel.bind("<Button-3>", lambda e: self.root.destroy())
+        self.panel.bind("<Button-3>", self.popup_badge_menu)
 
         g = tk.Frame(self.panel, bg=BG)
         g.pack(fill="both", expand=True, padx=10, pady=8)

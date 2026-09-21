@@ -214,7 +214,7 @@ class TrayIcon:
                 shell32.Shell_NotifyIconW(NIM_DELETE, ctypes.byref(nid))
             if self._hwnd:
                 user32.DestroyWindow(self._hwnd)
-                user32.UnregisterClassW(self._class_name, hinst)
+            user32.UnregisterClassW(self._class_name, hinst)   # try 内类必然已注册，无条件注销
             if self._hicon and not self._icon_is_shared:
                 user32.DestroyIcon(self._hicon)
             self._hwnd = None

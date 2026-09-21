@@ -571,6 +571,8 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 
 > **审查修正（P2-Task3 实现发现计划代码 3 处 ctypes x64 编组 bug，已修复并经 spec 审查独立复现验证）：** ① `HWND_MESSAGE = ctypes.c_void_p(-3)`（裸 int 在 x64 被零扩展为 0xFFFFFFFD，CreateWindowExW 报 err 1400）；② `user32.DefWindowProcW` 需声明 argtypes/restype（否则 WM_CREATE 的 64 位 CREATESTRUCT 指针在回调内抛 ArgumentError 中止窗口创建）；③ `Shell_NotifyIconW` 从 `ctypes.windll.shell32` 调用（本机 user32 不导出，且异常会被 `_run` 的 except 吞成 show()=False）。**计划正文的 Task 3 代码以这三处修正为准，勿回退。**
 
+> **审查后加固（P2-Task3 质量审查，随 Task 4 落地）：** ① trayicon 的 `UnregisterClassW` 移出 `if self._hwnd:` 守卫（类注册成功但建窗失败时类泄漏、实例烧毁——try 内类必然已注册，无条件注销即可），并在 TestShowGuard 补 `t._thread is th` 不变量断言；② **Task 4 ride-along（落实 P2-Task1 审查遗留项③）**：`_drag_end` 保存改为"以磁盘文件为基底合并"——`load_config(CONFIG_PATH)` 显式传当前值（调用时求值，可测试），仅覆盖四个运行时键，磁盘上的 token/base_url 原样保留（用户手工删除不被复活）。③ TaskbarCreated 重建（explorer 崩溃后图标消失）明确推迟到后续加固，不在本计划。
+
 ### Task 4: UsageApp 三态——右键菜单 / 最小化 / 恢复 / quit_app
 
 **Files:**

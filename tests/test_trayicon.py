@@ -34,6 +34,7 @@ class TestShowGuard(unittest.TestCase):
         started.wait(1)
         try:
             self.assertFalse(t.show())       # 线程活着：不得再启动第二个（防孤儿图标）
+            self.assertIs(t._thread, th)     # 不变量：活线程未被替换
         finally:
             release.set()
             th.join(2)
