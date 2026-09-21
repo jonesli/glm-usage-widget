@@ -3,3 +3,4 @@ __pycache__/
 config.json
 widget.log
 *.tmp
+config.json.e2e-backup

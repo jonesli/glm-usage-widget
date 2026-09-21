@@ -349,12 +349,23 @@ def main():
     env = dict(os.environ)
     env["ANTHROPIC_BASE_URL"] = "http://127.0.0.1:9"
     env["PYTHONIOENCODING"] = "utf-8"
-    subprocess.run([sys.executable, os.path.abspath(__file__), "--auth"], env=env,
-                   cwd=APP_DIR, timeout=40)
-    subprocess.run([sys.executable, os.path.abspath(__file__), "--offline"], env=env,
-                   cwd=APP_DIR, timeout=40)
-    subprocess.run([sys.executable, os.path.abspath(__file__), "--memory"], env=env,
-                   cwd=APP_DIR, timeout=60)
+    children = []
+    for name, arg, timeout in (("auth", "--auth", 40), ("offline", "--offline", 40),
+                               ("memory", "--memory", 60)):
+        result = subprocess.run([sys.executable, os.path.abspath(__file__), arg],
+                                env=env, cwd=APP_DIR, timeout=timeout,
+                                capture_output=True, text=True,
+                                encoding="utf-8", errors="replace")
+        print(result.stdout or "", end="", flush=True)   # 回显子进程 PASS/FAIL 行
+        if result.stderr:
+            print(result.stderr, end="", file=sys.stderr, flush=True)
+        children.append((name, result))
+    # 统一规则：子进程成功必退出 0；非 0（崩溃/异常路径）一律计入父进程 FAILS，
+    # 防止子进程静默失败而父进程仍宣称"全部通过"。
+    for name, result in children:
+        if result.returncode != 0:
+            FAILS.append(f"子进程异常退出: {name}")
+            print(f"FAIL 子进程异常退出: {name} (rc={result.returncode})", flush=True)
 
     # 再跑进程内 E2E（quit_app 销毁 root 是最后一步，之后立即 os._exit）
     run_e2e()
