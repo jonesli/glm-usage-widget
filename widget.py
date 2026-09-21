@@ -417,8 +417,18 @@ class UsageApp:
                                     anchor="w")
         self.p_mcp_reset.grid(row=11, column=0, columnspan=3, sticky="w")
 
+        # 近 24 小时 Token 消耗趋势（与 MCP 无关，标题写明以免误读）
+        self.p_spark_title = tk.Label(g, text="近24小时 Token 消耗趋势（每小时）",
+                                      font=RESET_FONT, bg=BG, fg=COL_DIM, anchor="w")
+        self.p_spark_title.grid(row=12, column=0, columnspan=3, sticky="w", pady=(10, 2))
         self.spark = tk.Canvas(g, width=228, height=40, bg=BG, highlightthickness=0)
-        self.spark.grid(row=12, column=0, columnspan=3, pady=(6, 0))
+        self.spark.grid(row=13, column=0, columnspan=3)
+        self.p_spark_start = tk.Label(g, text="← 24小时前", font=RESET_FONT, bg=BG,
+                                      fg=COL_DIM)
+        self.p_spark_start.grid(row=14, column=0, sticky="w")
+        self.p_spark_end = tk.Label(g, text="现在 →", font=RESET_FONT, bg=BG,
+                                    fg=COL_DIM)
+        self.p_spark_end.grid(row=14, column=2, sticky="e")
 
     def _draw_spark(self):
         c = self.spark
