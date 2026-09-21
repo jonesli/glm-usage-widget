@@ -70,7 +70,13 @@ def badge_parts(data, last_ok, warn=50, alert=80):
     if err:
         return [(f"⚠ {last_ok}", COL_WARN)]
     wins = data.get("token_windows") or []
-    pct5 = max([w.get("percentage", 0.0) for w in wins], default=0.0)
+    pct5 = None
+    for w in wins:
+        if str(w.get("label", "")).startswith("5小时"):
+            pct5 = w.get("percentage", 0.0)     # 徽章只看约束最强的 5 小时窗口
+            break
+    if pct5 is None:                            # 无语义标签时退回最大值（旧数据兼容）
+        pct5 = max([w.get("percentage", 0.0) for w in wins], default=0.0)
     mcp_pct = (data.get("mcp") or {}).get("percentage", 0.0)
     return [
         (f"5h:{pct5:.0f}%", color_for(pct5, warn, alert)),
@@ -355,15 +361,15 @@ class UsageApp:
         self.p_title = tk.Label(g, text="GLM Coding Plan", font=FONT, bg=BG, fg=FG)
         self.p_title.grid(row=0, column=0, columnspan=3, sticky="w")
 
-        self.p_bars = []          # [(canvas, rect, pct_label), ...] 窗口A/B
-        for i, name in enumerate(("窗口A", "窗口B")):
-            tk.Label(g, text=name, font=FONT, bg=BG, fg=COL_DIM)\
-                .grid(row=1 + i, column=0, sticky="w")
+        self.p_bars = []          # [(name_label, canvas, rect, pct_label), ...]
+        for i, name in enumerate(("窗口1", "窗口2")):
+            name_lab = tk.Label(g, text=name, font=FONT, bg=BG, fg=COL_DIM)
+            name_lab.grid(row=1 + i, column=0, sticky="w")
             c, rect = self._make_bar(g)
             c.grid(row=1 + i, column=1, pady=2)
             lab = tk.Label(g, text="0%", font=FONT, bg=BG, fg=FG, width=5)
             lab.grid(row=1 + i, column=2, sticky="w")
-            self.p_bars.append((c, rect, lab))
+            self.p_bars.append((name_lab, c, rect, lab))
 
         self.p_today = tk.Label(g, text="今日 Token  0", font=FONT, bg=BG, fg=FG,
                                 justify="left", anchor="w")
@@ -416,9 +422,11 @@ class UsageApp:
         else:
             self.p_title.configure(text=f"GLM Coding Plan   更新 {self.last_ok}")
         wins = d.get("token_windows") or []
-        for i, (canvas, rect, lab) in enumerate(self.p_bars):
-            pct = wins[i].get("percentage", 0.0) if i < len(wins) else 0.0
+        for i, (name_lab, canvas, rect, lab) in enumerate(self.p_bars):
+            win = wins[i] if i < len(wins) else {}
+            pct = win.get("percentage", 0.0)
             self._update_bar(canvas, rect, pct, color_for(pct, warn, alert))
+            name_lab.configure(text=win.get("label", f"窗口{i + 1}"))
             lab.configure(text=f"{pct:.0f}%")
         today = d.get("today") or {}
         self.p_today.configure(

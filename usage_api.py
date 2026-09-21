@@ -62,11 +62,25 @@ def get_base_url():
     return None
 
 
+def _window_label(unit, number):
+    """TOKENS_LIMIT 条目的窗口语义。
+
+    官方文档（docs.bigmodel.cn FAQ）：套餐采用"每 5 小时限额 + 每周限额"
+    双机制；unit/number 是时间单位×数量，实测 (3,5) 距重置 <5h、(6,1)
+    距重置 <7d 与之一致。未知组合回退为可读的通用格式。
+    """
+    named = {(3, 5): "5小时", (6, 1): "每周"}
+    if unit is None or number is None:
+        return "窗口"
+    return named.get((unit, number), f"{number}×单位{unit}")
+
+
 def parse_quota(data):
     """解析 quota/limit 响应 -> {"token_windows": [...], "mcp": {...}}。永不抛异常。
 
     MCP 百分比按 currentUsage/usage 现场重算（API 的 percentage 是四舍五入值）；
     字段映射：currentUsage -> used（已用），usage -> total（总量，API 命名如此）。
+    token_windows 每条带 label（"5小时"/"每周"，来自 unit×number 语义）。
     """
     result = {"token_windows": [], "mcp": None}
     if not isinstance(data, dict):
@@ -78,7 +92,10 @@ def parse_quota(data):
         if not isinstance(item, dict):
             continue
         if item.get("type") == "TOKENS_LIMIT":
-            result["token_windows"].append({"percentage": _to_float(item.get("percentage"))})
+            result["token_windows"].append({
+                "label": _window_label(item.get("unit"), item.get("number")),
+                "percentage": _to_float(item.get("percentage")),
+            })
         elif item.get("type") == "TIME_LIMIT" and result["mcp"] is None:
             used = _to_float(item.get("currentUsage"))
             total = _to_float(item.get("usage"))

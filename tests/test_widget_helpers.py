@@ -62,6 +62,13 @@ class TestBadgeParts(unittest.TestCase):
         self.assertEqual(parts[0], ("5h:8%", COL_OK))
         self.assertEqual(parts[1], ("MCP:1%", COL_OK))
 
+    def test_success_picks_5h_window_not_max(self):
+        data = {"token_windows": [{"label": "5小时", "percentage": 12.0},
+                                  {"label": "每周", "percentage": 90.0}],
+                "mcp": {"percentage": 0.0}}
+        parts = badge_parts(data, "19:00", 50, 80)
+        self.assertEqual(parts[0], ("5h:12%", COL_OK))   # 只看 5 小时窗口，非两者取大
+
     def test_success_alert_color(self):
         data = {"token_windows": [{"percentage": 85.0}], "mcp": {"percentage": 0.0}}
         parts = badge_parts(data, "19:00", 50, 80)

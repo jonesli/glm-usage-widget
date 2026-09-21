@@ -1035,3 +1035,5 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 - [ ] 既有 57 项测试与既有 e2e 全部不回归（旧 T7 由 T11/T7 新版替代）
 
 > **最终审查注记（READY，无 Critical/Important）：** 两处有意偏差补记录——① restore_from_tray 直接 deiconify（spec 原文"按 badge_position 落位+启动钳制"；位置未变，行为等价或更优）；② M2 修正（show 失败保留菜单项可重试）见 Task-4 加固注记 ④。后续可选加固（不阻塞交付）：TaskbarCreated 重建、多显示器虚拟屏幕坐标、quit 期间 _fetch_worker 的 RuntimeError 日志噪音。
+
+> **语义澄清（用户反馈"窗口A/B 无法理解"后查明）：** quota/limit 的两条 TOKENS_LIMIT 并非"两个 5 小时窗口"——官方文档（docs.bigmodel.cn FAQ）确认套餐为"每 5 小时限额 + 每周限额"双机制。实测解码：unit=3×number=5 → 5小时窗口（距重置 3.5h<5h）；unit=6×number=1 → 每周窗口（距重置 50.2h<7d）。已改：parse_quota 每条带语义 label（5小时/每周，未知组合回退通用格式）；面板行名动态取 label；徽章 5h% 改为取 5小时窗口（原"两者取大"系语义未明时的错误猜测）。82 单测 + 20 e2e 全绿。

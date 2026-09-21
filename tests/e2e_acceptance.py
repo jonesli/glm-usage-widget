@@ -137,7 +137,10 @@ def run_e2e():
         app._apply_data(data)
         root.update()
         wins = data["token_windows"]
-        expect5 = f"5h:{max(w['percentage'] for w in wins):.0f}%"
+        pct5 = next((w["percentage"] for w in wins
+                     if str(w.get("label", "")).startswith("5小时")),
+                    max((w["percentage"] for w in wins), default=0.0))
+        expect5 = f"5h:{pct5:.0f}%"
         expect_mcp = f"MCP:{data['mcp']['percentage']:.0f}%"
         got = f"{app.lb_5h.cget('text')}|{app.lb_mcp.cget('text')}"
         check("T2a 徽章=接口数据", got == f"{expect5}|{expect_mcp}", f"got={got}")

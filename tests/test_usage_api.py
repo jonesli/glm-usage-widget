@@ -80,6 +80,7 @@ class TestParseQuota(unittest.TestCase):
         data = json.loads(load_fixture("quota_limit.json"))
         out = parse_quota(data)
         self.assertEqual([w["percentage"] for w in out["token_windows"]], [5.0, 8.0])
+        self.assertEqual([w["label"] for w in out["token_windows"]], ["5小时", "每周"])
         self.assertEqual(out["mcp"], {"used": 38, "total": 4000, "percentage": 0.95})
 
     def test_missing_fields(self):
@@ -161,7 +162,7 @@ class TestFetchAll(unittest.TestCase):
         self.assertNotIn("error", out)
         self.assertEqual(len(calls), 2)
         self.assertIn("startTime=2026-09-11+00%3A00%3A00", calls[0])
-        self.assertEqual(out["token_windows"], [{"percentage": 8.0}])
+        self.assertEqual(out["token_windows"], [{"label": "窗口", "percentage": 8.0}])
         self.assertEqual(out["today"]["total_tokens"], 42.0)
         self.assertEqual(out["fetched_at"], "2026-09-12 19:00:00")
 
@@ -208,7 +209,8 @@ class TestFetchAll(unittest.TestCase):
         out = fetch_all(now=datetime(2026, 9, 12, 19, 0, 0), fetcher=fake_fetcher,
                         token="tok", base_url="https://x.example")
         self.assertNotIn("error", out)
-        self.assertEqual(out["token_windows"], [{"percentage": 5.0}, {"percentage": 8.0}])
+        self.assertEqual(out["token_windows"], [{"label": "5小时", "percentage": 5.0},
+                                                {"label": "每周", "percentage": 8.0}])
         self.assertEqual(out["mcp"]["used"], 38)
         self.assertEqual(out["today"]["total_tokens"], 55_172_080)
 
