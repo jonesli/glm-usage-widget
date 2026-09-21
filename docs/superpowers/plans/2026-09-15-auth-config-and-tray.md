@@ -1033,3 +1033,5 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 - [ ] 退出无孤儿托盘图标（quit_app 先 hide）
 - [ ] 未配置时指引指向 config.json（单测）
 - [ ] 既有 57 项测试与既有 e2e 全部不回归（旧 T7 由 T11/T7 新版替代）
+
+> **最终审查注记（READY，无 Critical/Important）：** 两处有意偏差补记录——① restore_from_tray 直接 deiconify（spec 原文"按 badge_position 落位+启动钳制"；位置未变，行为等价或更优）；② M2 修正（show 失败保留菜单项可重试）见 Task-4 加固注记 ④。后续可选加固（不阻塞交付）：TaskbarCreated 重建、多显示器虚拟屏幕坐标、quit 期间 _fetch_worker 的 RuntimeError 日志噪音。
