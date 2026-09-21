@@ -426,6 +426,8 @@ class UsageApp:
         self.p_spark_start = tk.Label(g, text="← 24小时前", font=RESET_FONT, bg=BG,
                                       fg=COL_DIM)
         self.p_spark_start.grid(row=14, column=0, sticky="w")
+        self.p_spark_peak = tk.Label(g, text="", font=RESET_FONT, bg=BG, fg=COL_DIM)
+        self.p_spark_peak.grid(row=14, column=1, sticky="w", padx=(8, 0))
         self.p_spark_end = tk.Label(g, text="现在 →", font=RESET_FONT, bg=BG,
                                     fg=COL_DIM)
         self.p_spark_end.grid(row=14, column=2, sticky="e")
@@ -434,18 +436,25 @@ class UsageApp:
         c = self.spark
         c.delete("all")
         c.create_rectangle(0, 0, 227, 39, outline=COL_DIM)
+        self.p_spark_peak.configure(text="")
         hourly = (self.data or {}).get("hourly") or []
         if not hourly:
             return
         peak = max(v for _, v in hourly) or 1.0
         n = len(hourly)
         bw = max(2, 224 // n - 1)
+        peak_y = None
         for i, (_, v) in enumerate(hourly):
             if v <= 0:
                 continue
             h = max(1, int(v / peak * 34))
             x = 2 + i * (bw + 1)
             c.create_rectangle(x, 37 - h, x + bw, 37, fill=COL_OK, width=0)
+            if peak_y is None or 37 - h < peak_y:
+                peak_y = 37 - h
+        if peak_y is not None:      # 峰值参考线（Y 轴刻度），数值见下方轴标注
+            c.create_line(1, peak_y, 226, peak_y, fill=COL_DIM, dash=(2, 2))
+        self.p_spark_peak.configure(text=f"峰值 {format_tokens(peak)}")
 
     def _render_panel(self):
         latest = self.latest or {}
