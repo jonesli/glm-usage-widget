@@ -1,7 +1,8 @@
 """GLM Coding Plan 用量数据层：请求 monitor 接口并解析为统一结构。
 
-认证使用环境变量 ANTHROPIC_AUTH_TOKEN（与 Claude Code 相同的 token），
-接口域名取 ANTHROPIC_BASE_URL 的根。解析函数永不抛异常。
+认证优先来自 config.json 的 token/base_url（由 widget 层经参数传入），
+环境变量 ANTHROPIC_AUTH_TOKEN / ANTHROPIC_BASE_URL 仅作为参数缺省时的兜底。
+解析函数永不抛异常。
 """
 
 import json

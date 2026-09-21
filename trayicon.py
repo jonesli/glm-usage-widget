@@ -149,6 +149,7 @@ class TrayIcon:
         # 直接 user32.Shell_NotifyIconW 会 AttributeError 被吞成 show()=False
         shell32 = ctypes.windll.shell32
         hinst = kernel32.GetModuleHandleW(None)
+        kernel32.GetModuleHandleW.restype = wintypes.HMODULE   # x64 下避免 HMODULE 被截断为 32 位
 
         # wparam/lparam 回调进来是 64 位 Python int（如 WM_NCCREATE 的
         # CREATESTRUCT 指针），不声明 argtypes 会被当 32 位 int 编组，

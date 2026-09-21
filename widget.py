@@ -156,6 +156,7 @@ class UsageApp:
         self._drag_dx = self._drag_dy = 0
         self.minimized = False
         self._tray = None
+        self._tray_parking = None
         self._build_menus()
         self._build_badge()
         self._build_panel()
@@ -311,6 +312,7 @@ class UsageApp:
         self.badge.deiconify()
         if self._tray:
             tray, self._tray = self._tray, None
+            self._tray_parking = tray
             self.root.after(0, tray.hide)   # hide 会 join 消息线程；此处处于其封送的
             # event_generate 调用内，同步 join 会循环等待 3 秒超时——必须延后到空闲时执行
 
@@ -318,6 +320,9 @@ class UsageApp:
         try:
             if self._tray:
                 self._tray.hide()
+            if self._tray_parking:
+                self._tray_parking.hide()
+                self._tray_parking = None
         except Exception as exc:
             log(f"托盘清理异常: {exc!r}")
         if getattr(self, "_refresh_job", None):

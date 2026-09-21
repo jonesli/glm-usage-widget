@@ -32,7 +32,8 @@ pythonw widget.py
    `"C:\...\pythonw.exe" D:\workspace\ai\glm-usage-widget\widget.py`
    （pythonw.exe 的完整路径用
    `python -c "import sys; print(sys.executable.replace('python.exe','pythonw.exe'))"` 查询）
-3. 注意：环境变量需是"系统/用户级"设置，仅会话级 set 设置的开机自启读不到
+3. 注意：config.json 已含认证配置，无额外环境变量要求；若依赖环境变量兜底，
+   则变量需是"系统/用户级"设置（仅会话级 set 的开机自启读不到）
 
 ## 配置（config.json，可手工编辑，改完重启程序生效）
 
@@ -76,4 +77,4 @@ python tests/e2e_acceptance.py             # 20 项端到端验收（屏幕会�
 ## 数据来源
 
 `https://open.bigmodel.cn/api/monitor/usage/*`（与官方用量页同源），
-用 `Authorization: <ANTHROPIC_AUTH_TOKEN>` 头认证，无 cookies、无登录。
+认证：config.json 的 `token`（环境变量兜底）经 `Authorization` 头发送，无 cookies、无登录。
