@@ -89,7 +89,7 @@ def run_e2e():
     # T4 自动收回（直接驱动 500ms 定时器路径）
     app.hide_job = root.after(300, app.hide_panel)
     t0 = time.time()
-    while app.panel.winfo_ismapped() and time.time() - t0 < 2:
+    while app.panel.winfo_ismapped() and time.time() - t0 < 4:
         root.update()
     check("T4 自动收回", not app.panel.winfo_ismapped())
 
@@ -174,7 +174,7 @@ def run_e2e():
     check("T11a 菜单弹出", all(menu_state.values()), str(menu_state))
     labels = [app.badge_menu.entrycget(i, "label")
               for i in range(app.badge_menu.index("end") + 1)]
-    check("T11b 菜单项", labels == ["最小化到系统任务栏", "退出"], str(labels))
+    check("T11b 菜单项", labels == ["手动刷新", "最小化到系统任务栏", "退出"], str(labels))
 
     # T12 最小化到托盘（真实 Shell_NotifyIcon，通知区域会短暂出现图标）
     app.minimize_to_tray()

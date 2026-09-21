@@ -3,6 +3,7 @@
     { "type": "TOKENS_LIMIT", "unit": 3, "number": 5, "percentage": 5, "nextResetTime": 1789984834775 },
     { "type": "TOKENS_LIMIT", "unit": 6, "number": 1, "percentage": 8, "nextResetTime": 1790152915984 },
     { "type": "TIME_LIMIT", "unit": 5, "number": 1, "percentage": 1, "currentUsage": 38, "usage": 4000,
+      "nextResetTime": 1791448915985,
       "usageDetails": [
         { "modelCode": "search-prime", "usage": 36 },
         { "modelCode": "web-reader", "usage": 2 },

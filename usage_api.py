@@ -95,6 +95,7 @@ def parse_quota(data):
             result["token_windows"].append({
                 "label": _window_label(item.get("unit"), item.get("number")),
                 "percentage": _to_float(item.get("percentage")),
+                "next_reset": item.get("nextResetTime"),
             })
         elif item.get("type") == "TIME_LIMIT" and result["mcp"] is None:
             used = _to_float(item.get("currentUsage"))
@@ -103,6 +104,7 @@ def parse_quota(data):
                 "used": int(used),
                 "total": int(total),
                 "percentage": (used / total * 100) if total > 0 else 0.0,
+                "next_reset": item.get("nextResetTime"),
             }
     return result
 

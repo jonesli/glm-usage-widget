@@ -4,6 +4,7 @@ import json
 import math
 import os
 import threading
+import time
 import urllib.parse
 from datetime import datetime
 import tkinter as tk
@@ -58,6 +59,22 @@ def color_for(pct, warn, alert):
 def next_interval_sec(failures, base):
     """连续失败 >=3 次把间隔放宽到 BACKOFF_SEC（不低于用户配置值）。"""
     return max(base, BACKOFF_SEC) if failures >= 3 else base
+
+
+def humanize_reset(ms, now_ms=None):
+    """nextResetTime（毫秒时间戳）-> '3小时后重置'；过期/缺失返回友好文案。"""
+    now_ms = time.time() * 1000 if now_ms is None else now_ms
+    try:
+        delta_s = (float(ms) - float(now_ms)) / 1000
+    except (TypeError, ValueError):
+        return ""
+    if delta_s <= 0:
+        return "即将重置"
+    if delta_s >= 86400:
+        return f"{int(delta_s // 86400)}天后重置"
+    if delta_s >= 3600:
+        return f"{int(delta_s // 3600)}小时后重置"
+    return f"{max(1, int(delta_s // 60))}分钟后重置"
 
 
 def badge_parts(data, last_ok, warn=50, alert=80):
@@ -278,11 +295,13 @@ class UsageApp:
     # ---------- 右键菜单与托盘三态 ----------
     def _build_menus(self):
         self.badge_menu = tk.Menu(self.root, tearoff=0)
+        self.badge_menu.add_command(label="手动刷新", command=self.refresh)
         self.badge_menu.add_command(label="最小化到系统任务栏",
                                     command=self.minimize_to_tray)
         self.badge_menu.add_command(label="退出", command=self.quit_app)
         self.tray_menu = tk.Menu(self.root, tearoff=0)
         self.tray_menu.add_command(label="恢复", command=self.restore_from_tray)
+        self.tray_menu.add_command(label="手动刷新", command=self.refresh)
         self.tray_menu.add_command(label="退出", command=self.quit_app)
 
     def popup_badge_menu(self, e=None):
@@ -381,15 +400,17 @@ class UsageApp:
         for i, lab in enumerate(self.p_models):
             lab.grid(row=4 + i, column=0, columnspan=3, sticky="we")
 
-        self.p_mcp_txt = tk.Label(g, text="MCP(月)  0/0  0%", font=FONT, bg=BG, fg=FG,
-                                  anchor="w")
-        self.p_mcp_txt.grid(row=8, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        self.p_mcp_txt = tk.Label(g, text="MCP月度额度\n已用 0/0", font=FONT, bg=BG, fg=FG,
+                                  justify="left", anchor="w")
+        self.p_mcp_txt.grid(row=8, column=0, sticky="w", pady=(6, 0))
         c, rect = self._make_bar(g)
-        c.grid(row=9, column=0, columnspan=2, sticky="w", pady=2)
+        c.grid(row=8, column=1, pady=2, sticky="w")
         self.p_mcp_bar = (c, rect)
+        self.p_mcp_pct = tk.Label(g, text="0%", font=FONT, bg=BG, fg=FG, width=5)
+        self.p_mcp_pct.grid(row=8, column=2, sticky="w", pady=(6, 0))
 
         self.spark = tk.Canvas(g, width=228, height=40, bg=BG, highlightthickness=0)
-        self.spark.grid(row=10, column=0, columnspan=3, pady=(6, 0))
+        self.spark.grid(row=9, column=0, columnspan=3, pady=(6, 0))
 
     def _draw_spark(self):
         c = self.spark
@@ -426,7 +447,9 @@ class UsageApp:
             win = wins[i] if i < len(wins) else {}
             pct = win.get("percentage", 0.0)
             self._update_bar(canvas, rect, pct, color_for(pct, warn, alert))
-            name_lab.configure(text=win.get("label", f"窗口{i + 1}"))
+            name = win.get("label", f"窗口{i + 1}")
+            reset = humanize_reset(win.get("next_reset"))
+            name_lab.configure(text=f"{name}\n{reset}" if reset else name)
             lab.configure(text=f"{pct:.0f}%")
         today = d.get("today") or {}
         self.p_today.configure(
@@ -441,8 +464,12 @@ class UsageApp:
         mcp = d.get("mcp") or {"used": 0, "total": 0, "percentage": 0.0}
         self._update_bar(self.p_mcp_bar[0], self.p_mcp_bar[1],
                          mcp["percentage"], color_for(mcp["percentage"], warn, alert))
-        self.p_mcp_txt.configure(
-            text=f"MCP(月)  {mcp['used']}/{mcp['total']}  {mcp['percentage']:.0f}%")
+        mcp_reset = humanize_reset(mcp.get("next_reset"))
+        mcp_name = f"MCP月度额度\n已用 {mcp['used']}/{mcp['total']}"
+        if mcp_reset:
+            mcp_name += f" · {mcp_reset}"
+        self.p_mcp_txt.configure(text=mcp_name)
+        self.p_mcp_pct.configure(text=f"{mcp['percentage']:.0f}%")
         self._draw_spark()
 
     # ---------- 悬停展开/收回 ----------

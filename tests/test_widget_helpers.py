@@ -9,8 +9,8 @@ from unittest.mock import patch
 import widget
 from widget import (
     COL_ALERT, COL_DIM, COL_OK, COL_WARN, DEFAULTS,
-    badge_parts, color_for, load_config, next_interval_sec, resolve_auth,
-    save_config,
+    badge_parts, color_for, humanize_reset, load_config, next_interval_sec,
+    resolve_auth, save_config,
 )
 
 
@@ -41,6 +41,26 @@ class TestNextInterval(unittest.TestCase):
 
     def test_backoff_never_below_configured(self):
         self.assertEqual(next_interval_sec(3, 600), 600)
+
+
+class TestHumanizeReset(unittest.TestCase):
+    NOW = 1_800_000_000_000
+
+    def test_hours(self):
+        self.assertEqual(humanize_reset(self.NOW + 3.5 * 3600_000, self.NOW),
+                         "3小时后重置")
+
+    def test_days(self):
+        self.assertEqual(humanize_reset(self.NOW + 50 * 3600_000, self.NOW),
+                         "2天后重置")
+
+    def test_minutes(self):
+        self.assertEqual(humanize_reset(self.NOW + 90_000, self.NOW),
+                         "1分钟后重置")
+
+    def test_past_and_missing(self):
+        self.assertEqual(humanize_reset(self.NOW - 5_000, self.NOW), "即将重置")
+        self.assertEqual(humanize_reset(None, self.NOW), "")
 
 
 class TestBadgeParts(unittest.TestCase):
@@ -331,12 +351,12 @@ class TestTrayStates(unittest.TestCase):
         root.update()
         return root, app
 
-    def test_badge_menu_has_two_items(self):
+    def test_badge_menu_items(self):
         root, app = self._make_app()
         try:
             labels = [app.badge_menu.entrycget(i, "label")
                       for i in range(app.badge_menu.index("end") + 1)]
-            self.assertEqual(labels, ["最小化到系统任务栏", "退出"])
+            self.assertEqual(labels, ["手动刷新", "最小化到系统任务栏", "退出"])
         finally:
             root.destroy()
 
@@ -345,7 +365,7 @@ class TestTrayStates(unittest.TestCase):
         try:
             labels = [app.tray_menu.entrycget(i, "label")
                       for i in range(app.tray_menu.index("end") + 1)]
-            self.assertEqual(labels, ["恢复", "退出"])
+            self.assertEqual(labels, ["恢复", "手动刷新", "退出"])
         finally:
             root.destroy()
 
@@ -386,7 +406,7 @@ class TestTrayStates(unittest.TestCase):
                 root.update()
             self.assertFalse(app.minimized)
             self.assertTrue(bool(app.badge.winfo_ismapped()))
-            self.assertEqual(app.badge_menu.index("end"), 1)   # 菜单保留两项（可重试）
+            self.assertEqual(app.badge_menu.index("end"), 2)   # 菜单保留三项（可重试）
         finally:
             root.destroy()
 
