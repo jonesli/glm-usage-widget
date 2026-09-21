@@ -176,7 +176,8 @@ def fetch_all(now=None, fetcher=fetch_json, token=None, base_url=None):
     成功返回统一结构；失败返回 {"error": "<信息>"}。"""
     if now is None:
         now = datetime.now()
-    token = os.environ.get("ANTHROPIC_AUTH_TOKEN", "") if token is None else token
+    token = ((os.environ.get("ANTHROPIC_AUTH_TOKEN") or "").strip()
+             if token is None else token)
     base_url = base_url or get_base_url()
     if not token:
         return {"error": "NO_TOKEN"}

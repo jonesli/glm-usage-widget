@@ -161,7 +161,8 @@ class TestErrorStates(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            with patch.object(widget, "fetch_all", lambda: {"error": "off"}):
+            with patch.object(widget, "fetch_all", lambda *a, **k: {"error": "off"}), \
+                    patch.object(widget, "resolve_auth", lambda cfg, path=None: cfg):
                 app = widget.UsageApp(root)
             app.last_ok = "14:32"
             app._apply_data({"error": "boom"})
@@ -175,7 +176,8 @@ class TestErrorStates(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            with patch.object(widget, "fetch_all", lambda: {"error": "off"}):
+            with patch.object(widget, "fetch_all", lambda *a, **k: {"error": "off"}), \
+                    patch.object(widget, "resolve_auth", lambda cfg, path=None: cfg):
                 app = widget.UsageApp(root)
             app._apply_data({"error": "NO_TOKEN"})
             root.update()
@@ -194,7 +196,8 @@ class TestErrorStates(unittest.TestCase):
                 captured["base_url"] = base_url
                 return {"error": "stop"}
 
-            with patch.object(widget, "fetch_all", fake_fetch_all):
+            with patch.object(widget, "fetch_all", fake_fetch_all), \
+                    patch.object(widget, "resolve_auth", lambda cfg, path=None: cfg):
                 app = widget.UsageApp(root)
                 app.cfg["token"] = "cfg-tok"
                 app.cfg["base_url"] = "https://x.example"
@@ -209,7 +212,8 @@ class TestErrorStates(unittest.TestCase):
         root = tk.Tk()
         root.withdraw()
         try:
-            with patch.object(widget, "fetch_all", lambda: {"error": "off"}):
+            with patch.object(widget, "fetch_all", lambda *a, **k: {"error": "off"}), \
+                    patch.object(widget, "resolve_auth", lambda cfg, path=None: cfg):
                 app = widget.UsageApp(root)
             app.show_panel()                 # 面板展开后 _apply_data 才会重渲染面板
             root.update()

@@ -281,6 +281,11 @@ class TestFetchAll(unittest.TestCase):
         self.assertIn("error", out)
         self.assertIn("unexpected", out["error"])
 
+    def test_env_token_whitespace_only_is_no_token(self):
+        with patch.dict(os.environ, {"ANTHROPIC_AUTH_TOKEN": "   "}, clear=True):
+            out = fetch_all(now=datetime(2026, 9, 12), base_url="https://x.example")
+        self.assertEqual(out, {"error": "NO_TOKEN"})
+
 
 if __name__ == "__main__":
     unittest.main()

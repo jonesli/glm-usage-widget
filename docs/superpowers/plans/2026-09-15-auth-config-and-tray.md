@@ -16,7 +16,9 @@
 
 **对 spec 的一处实施级简化（不改变行为承诺）：** 托盘菜单为 [恢复, 退出] 两项——spec 原文"在徽章菜单基础上多一项恢复"中的"最小化"项在 minimized 态无意义，省去。
 
-> **审查后加固（P2-Task1 质量审查已实施）：** ① TestResolveAuth 四个测试一律使用密闭 env（预过滤 + `clear=True` 再放假变量）——修复"只 patch 单变量导致真实 token 被写进临时 config.json"的凭据泄漏；② 测试内 `open()` 改 with 消除 ResourceWarning；③ **Task 4 ride-along**：`_drag_end` 收窄为只持久化 `badge_position`（防止拖动把用户手工删除的 token"复活"写回）；④ **Task 6 ride-along**：README 增加"更换 token：直接改 config.json（或清空该字段后重启即重新从 env 迁移）"说明。
+> **审查后加固（P2-Task1 质量审查，①②已实施；③④为待办 ride-along）：** ① TestResolveAuth 四个测试一律使用密闭 env（`hermetic_env` + `clear=True`——注意 patch.dict 不带 clear=True 不会移除已存在的键，过滤会失效）；② 测试内 `open()` 改 with 消除 ResourceWarning；③ **Task 4 待实施**：`_drag_end` 收窄为只持久化 `badge_position`（防止拖动把用户手工删除的 token"复活"写回）；④ **Task 6 待实施**：README 增加"更换 token：直接改 config.json（或清空该字段后重启即重新从 env 迁移）；彻底停用需同时清空 config 字段并移除环境变量"说明。
+>
+> **审查后加固（P2-Task2 质量审查，随下一个提交落地）：** ⑤ 应用级测试构造 UsageApp 必须用 `patch.object(widget, "resolve_auth", lambda cfg, path=None: cfg)` 隔离（patch `CONFIG_PATH` 无效——`load_config`/`save_config` 的 path 默认参数在定义时绑定），否则全新克隆 + 有 env 的机器上跑测试会把真实 token 写进仓库 config.json；⑥ 零参 fetch 桩改用 `lambda *a, **k: ...` 惯用法；⑦ usage_api 的 env token 读取补 `.strip()`（纯空白 token 不再绕过 NO_TOKEN）；⑧ 计划 Task 2 的面板文案测试已修正为 `show_panel()` 后再 `_apply_data`（`_apply_data` 只重渲染已映射面板）。
 
 ---
 
