@@ -83,9 +83,20 @@ pythonw widget.py
 ## 测试
 
 ```bash
-python -m unittest -v                      # 79 项单元/组件测试
+python -m unittest -v                      # 88 项单元/组件测试
 python tests/e2e_acceptance.py             # 20 项端到端验收（屏幕会闪现窗口/托盘图标）
 ```
+
+## 打包为可执行文件
+
+```bash
+pip install pyinstaller      # 首次需要
+build.bat                    # 单文件 exe（默认），产物 dist\onefile\GLMUsageWidget.exe
+build.bat onedir             # 目录形式：启动更快、杀软误报更少
+```
+
+运行 exe 后 config.json / widget.log 生成在 **exe 同目录**（不会写进临时目录）。
+首次运行自动从环境变量迁移认证，或把已填好的 config.json 放到 exe 旁边。
 
 ## 数据来源
 

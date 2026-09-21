@@ -252,6 +252,16 @@ class TestErrorStates(unittest.TestCase):
             root.destroy()
 
 
+class TestAppDir(unittest.TestCase):
+    def test_frozen_uses_exe_dir(self):
+        with patch.object(widget.sys, "frozen", True, create=True), \
+                patch.object(widget.sys, "executable", r"C:\apps\GLMUsageWidget.exe"):
+            self.assertEqual(widget._app_dir(), r"C:\apps")
+
+    def test_source_run_uses_source_dir(self):
+        self.assertEqual(os.path.basename(widget._app_dir()), "glm-usage-widget")
+
+
 class TestLog(unittest.TestCase):
     def test_log_writes_timestamped_line(self):
         with tempfile.TemporaryDirectory() as d:

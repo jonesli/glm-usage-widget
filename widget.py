@@ -3,6 +3,7 @@
 import json
 import math
 import os
+import sys
 import threading
 import time
 import urllib.parse
@@ -12,7 +13,19 @@ import tkinter as tk
 from trayicon import TrayIcon
 from usage_api import fetch_all, format_tokens, get_base_url
 
-APP_DIR = os.path.dirname(os.path.abspath(__file__))
+
+def _app_dir():
+    """配置/日志所在目录：源码运行=源码目录；打包运行=exe 所在目录。
+
+    PyInstaller 单文件模式下 __file__ 指向临时解压目录，直接用会把
+    config.json 写进临时目录导致配置丢失——必须以 sys.executable 为准。
+    """
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+APP_DIR = _app_dir()
 CONFIG_PATH = os.path.join(APP_DIR, "config.json")
 LOG_PATH = os.path.join(APP_DIR, "widget.log")
 
