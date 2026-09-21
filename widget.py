@@ -145,7 +145,7 @@ def save_config(cfg, path=CONFIG_PATH):
 class UsageApp:
     def __init__(self, root):
         self.root = root
-        self.cfg = load_config()
+        self.cfg = resolve_auth(load_config())
         self.data = None          # 最近一次成功数据
         self.latest = None        # 最新一次拉取结果（含错误态），徽章据此渲染 ⚠/未配置
         self.failures = 0
@@ -311,8 +311,8 @@ class UsageApp:
         warn, alert = self.cfg["warn_threshold"], self.cfg["alert_threshold"]
         if latest.get("error") in ("NO_TOKEN", "NO_BASE_URL"):
             self.p_title.configure(text="未配置 Token")
-            self.p_today.configure(text="请设置环境变量 ANTHROPIC_AUTH_TOKEN 与\n"
-                                        "ANTHROPIC_BASE_URL 后重新启动本程序")
+            self.p_today.configure(text="请在 config.json 中设置 token 与 base_url\n"
+                                        "（token 不会提交到 git）后重新启动本程序")
             return
         d = self.data or {}
         if latest.get("error"):
@@ -399,7 +399,8 @@ class UsageApp:
 
     def _fetch_worker(self):
         try:
-            data = fetch_all()          # 永不抛异常
+            data = fetch_all(token=self.cfg.get("token") or None,
+                             base_url=self.cfg.get("base_url") or None)  # 永不抛异常
             self.root.after(0, lambda: self._apply_data(data))
         except Exception as exc:
             log(f"后台线程异常: {exc!r}")

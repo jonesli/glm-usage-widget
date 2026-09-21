@@ -183,6 +183,42 @@ class TestErrorStates(unittest.TestCase):
         finally:
             root.destroy()
 
+    def test_fetch_uses_config_auth(self):
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            captured = {}
+
+            def fake_fetch_all(token=None, base_url=None):
+                captured["token"] = token
+                captured["base_url"] = base_url
+                return {"error": "stop"}
+
+            with patch.object(widget, "fetch_all", fake_fetch_all):
+                app = widget.UsageApp(root)
+                app.cfg["token"] = "cfg-tok"
+                app.cfg["base_url"] = "https://x.example"
+                app._fetch_worker()          # 直接调用线程体；after(0) 入队
+                root.update()                # 处理队列回调
+            self.assertEqual(captured.get("token"), "cfg-tok")
+            self.assertEqual(captured.get("base_url"), "https://x.example")
+        finally:
+            root.destroy()
+
+    def test_panel_no_token_mentions_config(self):
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            with patch.object(widget, "fetch_all", lambda: {"error": "off"}):
+                app = widget.UsageApp(root)
+            app.show_panel()                 # 面板展开后 _apply_data 才会重渲染面板
+            root.update()
+            app._apply_data({"error": "NO_TOKEN"})
+            root.update()
+            self.assertIn("config.json", app.p_today.cget("text"))
+        finally:
+            root.destroy()
+
 
 class TestLog(unittest.TestCase):
     def test_log_writes_timestamped_line(self):
