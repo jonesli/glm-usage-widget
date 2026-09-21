@@ -1,6 +1,7 @@
 """GLM Coding Plan 用量悬浮窗（tkinter）。置顶徽章 + 悬停展开面板。"""
 
 import json
+import math
 import os
 import threading
 from datetime import datetime
@@ -88,7 +89,7 @@ def load_config(path=CONFIG_PATH):
         if key == "badge_position":
             if (isinstance(val, list) and len(val) == 2
                     and all(isinstance(v, (int, float)) and not isinstance(v, bool)
-                            for v in val)):
+                            and math.isfinite(v) for v in val)):
                 cfg[key] = [int(val[0]), int(val[1])]
         elif isinstance(val, (int, float)) and not isinstance(val, bool) and val > 0:
             if key != "refresh_interval_sec":

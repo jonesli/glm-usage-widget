@@ -191,6 +191,11 @@ def fetch_all(now=None, fetcher=fetch_json, token=None, base_url=None):
         return {"error": str(exc)}
     except Exception as exc:  # 兜底：意外异常不能杀死轮询线程
         return {"error": f"unexpected: {exc!r}"}
+    if (not isinstance(quota_data, dict) or not isinstance(quota_data.get("limits"), list)
+            or not isinstance(model_data, dict)
+            or not isinstance(model_data.get("x_time"), list)
+            or not isinstance(model_data.get("tokensUsage"), list)):
+        return {"error": "接口数据结构异常"}
     result = parse_quota(quota_data)
     result.update(parse_model_usage(model_data, now))
     result["fetched_at"] = now.strftime("%Y-%m-%d %H:%M:%S")

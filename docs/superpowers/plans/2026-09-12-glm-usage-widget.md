@@ -12,7 +12,7 @@
 
 **工作目录约定：** 所有命令均在 `D:\workspace\ai\glm-usage-widget` 下执行（bash 写法 `cd "D:/workspace/ai/glm-usage-widget"`）。
 
-**对 spec 的两点实施级补充**（不改变 spec 行为，属于落地必需）：
+**对 spec 的三点实施级补充**（不改变 spec 行为，属于落地必需）：
 1. 徽章**右键退出**程序（无边框窗口没有关闭按钮，必须有退出途径）
 2. 接口返回的 `modelSummaryList` 是整窗口径，与"今日"不一致；按模型分项改用 `modelDataList`（每模型逐小时数组）按今日标签聚合，与总数同口径
 3. 约定：每个任务的提交同时 `git add docs/`，让计划文档的勾选状态随代码一起进版本库

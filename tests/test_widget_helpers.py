@@ -123,6 +123,14 @@ class TestConfig(unittest.TestCase):
             cfg = load_config(path)
             self.assertEqual(cfg["refresh_interval_sec"], DEFAULTS["refresh_interval_sec"])
 
+    def test_nan_position_falls_back(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "config.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"badge_position": [float("nan"), 100]}, f)
+            cfg = load_config(path)
+            self.assertEqual(cfg["badge_position"], DEFAULTS["badge_position"])
+
 
 class TestErrorStates(unittest.TestCase):
     def test_badge_shows_warning_after_generic_error(self):

@@ -221,6 +221,26 @@ class TestFetchAll(unittest.TestCase):
         self.assertIn("error", out)
         self.assertIn("401", out["error"])
 
+    def test_shape_drift_returns_error(self):
+        def fake_fetcher(url, token):
+            if "model-usage" in url:
+                return {"code": 200, "msg": "ok", "data": {"something": "else"}}
+            return {"code": 200, "msg": "ok", "data": {}}
+
+        out = fetch_all(now=datetime(2026, 9, 12), fetcher=fake_fetcher,
+                        token="tok", base_url="https://x.example")
+        self.assertEqual(out, {"error": "接口数据结构异常"})
+
+    def test_empty_day_still_ok(self):
+        def fake_fetcher(url, token):
+            if "model-usage" in url:
+                return {"x_time": [], "tokensUsage": []}
+            return {"limits": []}
+
+        out = fetch_all(now=datetime(2026, 9, 12), fetcher=fake_fetcher,
+                        token="tok", base_url="https://x.example")
+        self.assertNotIn("error", out)
+
     def test_authorization_header_is_raw_token(self):
         captured = {}
 
