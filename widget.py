@@ -222,6 +222,19 @@ class UsageApp:
         self.root.bind("<<TrayRestore>>", lambda e: self.restore_from_tray())
         self.root.bind("<<TrayMenu>>", lambda e: self.show_tray_menu())
         self._refresh_job = self.root.after(200, self.refresh)
+        self.root.bind("<Destroy>", self._on_root_destroy, add="+")
+
+    def _on_root_destroy(self, e=None):
+        """root 销毁时取消未触发的刷新任务：防止残留 after 命令在
+        其他事件循环里被抽中（测试噪音/销毁后线程竞态的根源）。"""
+        if e is not None and getattr(e, "widget", None) is not self.root:
+            return
+        if getattr(self, "_refresh_job", None):
+            try:
+                self.root.after_cancel(self._refresh_job)
+            except Exception:
+                pass
+            self._refresh_job = None
 
     # ---------- 徽章 ----------
     def _build_badge(self):

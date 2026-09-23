@@ -90,7 +90,8 @@ pythonw widget.py
 ## 测试
 
 ```bash
-python -m unittest -v                      # 88 项单元/组件测试
+python run_tests.py                        # 94 项单元/组件测试（防崩入口，推荐）
+python -m unittest -v                      # 同上（偶发 Tk 退出噪音时中断属已知现象）
 python tests/e2e_acceptance.py             # 20 项端到端验收（屏幕会闪现窗口/托盘图标）
 ```
 
