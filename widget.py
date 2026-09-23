@@ -324,13 +324,13 @@ class UsageApp:
     # ---------- 右键菜单与托盘三态 ----------
     def _build_menus(self):
         self.badge_menu = tk.Menu(self.root, tearoff=0)
-        self.badge_menu.add_command(label="手动刷新", command=self.refresh)
+        self.badge_menu.add_command(label="手动刷新", command=lambda: self.refresh(True))
         self.badge_menu.add_command(label="最小化到系统任务栏",
                                     command=self.minimize_to_tray)
         self.badge_menu.add_command(label="退出", command=self.quit_app)
         self.tray_menu = tk.Menu(self.root, tearoff=0)
         self.tray_menu.add_command(label="恢复", command=self.restore_from_tray)
-        self.tray_menu.add_command(label="手动刷新", command=self.refresh)
+        self.tray_menu.add_command(label="手动刷新", command=lambda: self.refresh(True))
         self.tray_menu.add_command(label="退出", command=self.quit_app)
 
     def popup_badge_menu(self, e=None):
@@ -651,7 +651,14 @@ class UsageApp:
         return x <= px <= x + win.winfo_width() and y <= py <= y + win.winfo_height()
 
     # ---------- 数据刷新 ----------
-    def refresh(self):
+    def refresh(self, manual=False):
+        if manual:
+            # 手动刷新给出即时反馈：正在重新拉取最新额度与消耗量
+            try:
+                if self.panel.winfo_ismapped():
+                    self.p_title.configure(text="GLM Coding Plan   刷新中…")
+            except Exception:
+                pass
         threading.Thread(target=self._fetch_worker, daemon=True).start()
 
     def _fetch_worker(self):
