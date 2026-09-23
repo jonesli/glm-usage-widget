@@ -333,6 +333,23 @@ class TestConfigDialog(unittest.TestCase):
         finally:
             root.destroy()
 
+    def test_manual_refresh_shows_feedback(self):
+        root, app = self._make_app()
+        try:
+            app.show_panel()
+            root.update()
+            app._fetch_worker = lambda: None        # 冻结数据回填，锁定"刷新中"状态
+            app.refresh(True)
+            root.update()
+            self.assertIn("刷新中", app.p_title.cget("text"))
+            app.hide_panel()
+            root.update()
+            app.refresh(True)
+            root.update()
+            self.assertEqual(app.lb_5h.cget("text"), "刷新中")
+        finally:
+            root.destroy()
+
     def test_no_token_panel_shows_config_button(self):
         root, app = self._make_app()
         try:

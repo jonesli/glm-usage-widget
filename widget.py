@@ -653,10 +653,13 @@ class UsageApp:
     # ---------- 数据刷新 ----------
     def refresh(self, manual=False):
         if manual:
-            # 手动刷新给出即时反馈：正在重新拉取最新额度与消耗量
+            # 手动刷新给出即时反馈：面板开着改标题，否则改徽章文字；
+            # 均在 _apply_data 渲染时被最新数据覆盖
             try:
                 if self.panel.winfo_ismapped():
                     self.p_title.configure(text="GLM Coding Plan   刷新中…")
+                else:
+                    self.lb_5h.configure(text="刷新中", fg=COL_DIM)
             except Exception:
                 pass
         threading.Thread(target=self._fetch_worker, daemon=True).start()
