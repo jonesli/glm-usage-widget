@@ -5,6 +5,7 @@ Tk 侧应在回调里用 root.event_generate(...) 切回主线程。
 """
 
 import ctypes
+import sys
 import threading
 import traceback
 from ctypes import wintypes
@@ -96,10 +97,11 @@ def make_icon_pixels(size=16):
 class TrayIcon:
     """托盘图标。回调在消息线程触发，调用方负责切回主线程。"""
 
-    def __init__(self, tip="GLM 用量悬浮窗", on_restore=None, on_menu=None):
+    def __init__(self, tip="GLM 用量悬浮窗", on_restore=None, on_menu=None, log_fn=None):
         self.tip = tip
         self.on_restore = on_restore
         self.on_menu = on_menu
+        self.log_fn = log_fn
         self._thread = None
         self._ready = threading.Event()
         self._stop = threading.Event()
@@ -133,12 +135,22 @@ class TrayIcon:
             if not self._thread.is_alive():
                 self._thread = None      # 只有真正退出才清引用，防孤儿失联
 
+    def _log(self, msg):
+        """诊断输出：优先调用方注入的 log（widget.log），无控制台时静默。"""
+        try:
+            if self.log_fn:
+                self.log_fn(msg)
+            elif sys.stderr:
+                print(msg, file=sys.stderr)
+        except Exception:
+            pass
+
     # ---- 以下均在消息线程内执行 ----
     def _run(self):
         try:
             self._run_inner()
         except Exception:
-            traceback.print_exc()        # pythonw 下不可见，控制台开发运行可见
+            self._log("托盘线程异常: " + traceback.format_exc(limit=3))
             self._ok = False
             self._ready.set()
 
@@ -175,6 +187,7 @@ class TrayIcon:
         wc = WNDCLASSW(0, self._wndproc_ref, 0, 0, hinst, None, None,
                        None, None, self._class_name)
         if not user32.RegisterClassW(ctypes.byref(wc)):
+            self._log(f"RegisterClassW 失败 err={kernel32.GetLastError()}")
             self._ok = False
             self._ready.set()
             return
@@ -192,12 +205,15 @@ class TrayIcon:
                                                 0, 0, 0, 0, HWND_MESSAGE, None,
                                                 hinst, None)
             if not self._hwnd:
+                self._log(f"CreateWindowExW 失败 err={kernel32.GetLastError()}")
                 self._ok = False
                 return
             nid.hWnd = self._hwnd
 
             self._ok = bool(shell32.Shell_NotifyIconW(NIM_ADD, ctypes.byref(nid)))
             if not self._ok:
+                self._log(f"Shell_NotifyIconW(NIM_ADD) 失败 err={kernel32.GetLastError()} "
+                          f"hwnd={self._hwnd} hicon={bool(self._hicon)}")
                 return
             added = True
             self._ready.set()      # 成功路径立即放行 show()；失败路径由 finally 兜底

@@ -355,6 +355,7 @@ class UsageApp:
                 tip="GLM 用量悬浮窗",
                 on_restore=lambda: self.root.event_generate("<<TrayRestore>>"),
                 on_menu=lambda: self.root.event_generate("<<TrayMenu>>"),
+                log_fn=log,
             )
         if not self._tray.show():
             log("托盘图标创建失败，徽章保持显示（可再次右键重试）")
@@ -590,7 +591,7 @@ class UsageApp:
         self._update_bar(self.p_mcp_bar[0], self.p_mcp_bar[1],
                          mcp["percentage"], color_for(mcp["percentage"], warn, alert))
         mcp_reset = humanize_reset(mcp.get("next_reset"))
-        mcp_line = f"  已用 {mcp['used']}/{mcp['total']}"
+        mcp_line = f"  已用 {mcp.get('used', 0)}/{mcp.get('total', 0)}"
         if mcp_reset:
             mcp_line += f" · {mcp_reset}"
         self.p_mcp_reset.configure(text=mcp_line)
@@ -692,7 +693,16 @@ class UsageApp:
 def main():
     root = tk.Tk()
     root.withdraw()
-    UsageApp(root)
+    app = UsageApp(root)
+    if os.environ.get("GLM_TRAY_SELFTEST"):
+        # 打包版诊断：启动 3 秒后自动触发一次最小化/恢复并记录结果
+        def _selftest():
+            app.minimize_to_tray()
+            ok = bool(app._tray and app._tray._ok)
+            log(f"托盘自检: {'成功' if ok else '失败'}")
+            app.restore_from_tray()
+            root.after(800, root.destroy)
+        root.after(3000, _selftest)
     root.mainloop()
 
 
